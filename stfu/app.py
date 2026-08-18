@@ -48,7 +48,10 @@ from stfu.firstrun import needs_setup
 from stfu.firstrunui import FirstRunWizard
 from stfu.images import ImageLibrary
 from stfu.instance import SingleInstance
+from stfu.levels import dbfs_from_rms
 from stfu.logstore import LogStore
+from stfu.meter import MeterState
+from stfu.meterui import MeterWindow
 from stfu.overlay import ClickTracker, DesktopMessage, FourClickOverlay
 from stfu.reportui import ReportWindow
 from stfu.settingsui import SettingsWindow
@@ -179,6 +182,7 @@ class App:
         self.actions = _build_actions(config, self.bridge)
         self.source = MicSource(config.device_name, config.device_hostapi)
         self.engine = Engine(config, self.source, self.actions, self.logstore)
+        self.meter = MeterState()
 
         self._capture_stop = threading.Event()
         self._mic_present = threading.Event()
@@ -190,6 +194,7 @@ class App:
             on_report=self._open_report,
             on_settings=self._open_settings,
             on_recalibrate=self._open_recalibrate,
+            on_meter=self._open_meter,
             on_pause=self._pause,
             on_exit=self._request_exit,
         )
@@ -278,7 +283,9 @@ class App:
             for rms in self.source.frames():
                 if self._capture_stop.is_set():
                     break
-                self.engine.handle_frame(rms, mono=elapsed(), wall=datetime.now())
+                now = elapsed()
+                self.engine.handle_frame(rms, mono=now, wall=datetime.now())
+                self._update_meter(rms, now, mic_present=True)
                 frame_count += 1
                 if (
                     frame_count % AVAILABILITY_CHECK_FRAMES == 0
@@ -298,10 +305,27 @@ class App:
             watch.update(present=False, now=elapsed())
             self._mic_lost()
 
+    def _update_meter(self, rms: float, now: float, mic_present: bool) -> None:
+        """Feed the live meter window (F5) from the frame the capture thread
+        already has -- never a second stream. See stfu/meterui.py for how the
+        Tk side reads this without adding cross-thread traffic."""
+        self.meter.update(
+            dbfs=dbfs_from_rms(rms),
+            threshold_dbfs=self.engine.detector.current_threshold(),
+            cooldown_remaining_s=self.engine.detector.cooldown_remaining(now),
+            mic_present=mic_present,
+        )
+
     def _mic_lost(self) -> None:
         self._mic_present.clear()
         self.engine.on_mic_lost()
         self.tray.set_state(STATE_NO_MIC)
+        self.meter.update(
+            dbfs=dbfs_from_rms(0.0),
+            threshold_dbfs=self.engine.detector.current_threshold(),
+            cooldown_remaining_s=0.0,
+            mic_present=False,
+        )
 
     def _mic_found(self) -> None:
         self._mic_present.set()
@@ -318,6 +342,11 @@ class App:
 
     def _open_settings(self) -> None:
         SettingsWindow(self.config).show()
+
+    def _open_meter(self) -> None:
+        # Read-only diagnostics (F5): no PIN, and it reads self.meter rather
+        # than touching the engine or the capture thread directly.
+        MeterWindow(self.meter).show()
 
     def _open_recalibrate(self) -> None:
         # The tray shortcut opens the calibration flow directly (F3) rather

@@ -203,6 +203,17 @@ class Detector:
             return self._adaptive.threshold()
         return self.config.spike_threshold_dbfs
 
+    def cooldown_remaining(self, now: float) -> float:
+        """Seconds left before a trigger is allowed again.
+
+        A thin pass-through to the private Cooldown -- exposed for the live
+        meter (F5), which needs to show a suppressed yell as visibly
+        suppressed rather than apparently ignored. Nothing about the gate
+        itself changes; this only lets a caller read it without reaching
+        into a private attribute.
+        """
+        return self._cooldown.remaining(now)
+
     def suppress_until(self, when: float) -> None:
         """Ignore audio until `when`, and clear the rolling windows.
 

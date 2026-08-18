@@ -71,6 +71,28 @@ def test_a_second_event_fires_once_the_cooldown_expires():
     assert len(events) == 2
 
 
+# --- cooldown_remaining (F5) ---------------------------------------------
+#
+# Exposed as a pass-through so the live meter can show a suppressed yell as
+# visibly suppressed instead of apparently ignored.
+
+
+def test_cooldown_remaining_is_zero_before_any_trigger():
+    detector = Detector(Config(threshold_mode="manual", spike_threshold_dbfs=-12.0))
+    assert detector.cooldown_remaining(now=0.0) == 0.0
+
+
+def test_cooldown_remaining_counts_down_after_a_trigger():
+    detector = Detector(
+        Config(threshold_mode="manual", spike_threshold_dbfs=-12.0, cooldown_seconds=30)
+    )
+    events = feed(detector, -6.0, frames=20)
+    assert events
+    fired_at = events[0].at
+    assert detector.cooldown_remaining(now=fired_at + 10.0) == pytest.approx(20.0)
+    assert detector.cooldown_remaining(now=fired_at + 30.0) == 0.0
+
+
 def test_sustain_is_off_by_default():
     detector = Detector(
         Config(

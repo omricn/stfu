@@ -74,6 +74,7 @@ class Tray:
         on_report: Callable[[], None],
         on_settings: Callable[[], None],
         on_recalibrate: Callable[[], None],
+        on_meter: Callable[[], None],
         on_pause: Callable[[], None],
         on_exit: Callable[[], None],
     ) -> None:
@@ -87,6 +88,8 @@ class Tray:
             title=STATE_TOOLTIPS[STATE_LISTENING],
             menu=pystray.Menu(
                 pystray.MenuItem("Report", self._gated(on_report, gated=False)),
+                # Read-only diagnostics (F5) -- no PIN, same as Report.
+                pystray.MenuItem("Live meter", self._gated(on_meter, gated=False)),
                 pystray.MenuItem("Open sounds folder", self._open_sounds_folder),
                 pystray.MenuItem(
                     f"Settings {LOCK}", self._gated(on_settings, gated=True)
