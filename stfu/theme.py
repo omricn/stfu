@@ -177,6 +177,15 @@ def apply(root: tk.Misc) -> ttk.Style:
         "TCheckbutton", background=INK, foreground=TEXT, focuscolor=INDIGO
     )
     style.map("TCheckbutton", background=[("active", INK)])
+    # For a checkbutton sitting inside a SURFACE-coloured row (settingsui.py's
+    # grouped form rows) rather than directly on the window background --
+    # ttk has no way to inherit a parent widget's background automatically,
+    # so without this the checkbutton's own INK patch shows as a visible
+    # seam against the row around it.
+    style.configure(
+        "Surface.TCheckbutton", background=SURFACE, foreground=TEXT, focuscolor=INDIGO
+    )
+    style.map("Surface.TCheckbutton", background=[("active", SURFACE)])
 
     style.configure(
         "Treeview",

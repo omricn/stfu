@@ -27,24 +27,39 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from stfu import appicon
+from stfu import appicon, theme
 from stfu.levels import meter_from_dbfs
 from stfu.meter import MeterState
 
 REFRESH_MS = 150
 BAR_WIDTH = 320
 BAR_HEIGHT = 28
-BAR_BG = "#1c1c1c"
-BAR_FILL = "#2ecc71"
-BAR_OVER_THRESHOLD_FILL = "#e74c3c"
-THRESHOLD_MARKER = "#f5f5f5"
-COOLDOWN_ACTIVE_FG = "#f0a500"
-COOLDOWN_READY_FG = "#2ecc71"
+BAR_BG = theme.SURFACE_HI
+THRESHOLD_MARKER = theme.TEXT
+COOLDOWN_ACTIVE_FG = theme.AMBER
+COOLDOWN_READY_FG = theme.GREEN
+
+# How close to the threshold, in dB, counts as "approaching" (amber) rather
+# than comfortably clear (indigo) -- see docs/BRAND.md: "the bar takes the
+# accent order: indigo below threshold, amber approaching it, red over it".
+NEAR_THRESHOLD_MARGIN_DB = 6.0
 
 
 def _meter_x(dbfs: float) -> int:
     """Horizontal pixel position on the bar for a dBFS value, 0-100 scale."""
     return round(meter_from_dbfs(dbfs) / 100 * BAR_WIDTH)
+
+
+def _bar_colour(dbfs: float, threshold_dbfs: float) -> str:
+    """Indigo below the threshold, amber within `NEAR_THRESHOLD_MARGIN_DB` of
+    it, red at or over it -- the same three-accent order the mark, the
+    splash's progress bar, and the report's trigger markers all use, so a
+    reader who has seen any of those already knows what this colour means."""
+    if dbfs >= threshold_dbfs:
+        return theme.RED
+    if dbfs >= threshold_dbfs - NEAR_THRESHOLD_MARGIN_DB:
+        return theme.AMBER
+    return theme.INDIGO
 
 
 class MeterWindow:
@@ -61,6 +76,8 @@ class MeterWindow:
     def show(self) -> None:
         self.root = tk.Toplevel(self._master)
         appicon.set_window_icon(self.root)
+        theme.apply(self.root)
+        self.root.configure(bg=theme.INK)
         self.root.title("S.TFU - live meter")
 
         # Come to the front once, without staying pinned there. A window that
@@ -75,7 +92,12 @@ class MeterWindow:
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
         self._level_label = tk.Label(
-            self.root, text="", font=("Segoe UI", 16, "bold"), anchor="w"
+            self.root,
+            text="",
+            font=("Segoe UI", 16, "bold"),
+            anchor="w",
+            bg=theme.INK,
+            fg=theme.TEXT,
         )
         self._level_label.pack(fill="x", padx=16, pady=(16, 4))
 
@@ -88,17 +110,23 @@ class MeterWindow:
         )
         self._canvas.pack(padx=16, pady=4)
         self._bar = self._canvas.create_rectangle(
-            0, 0, 0, BAR_HEIGHT, fill=BAR_FILL, width=0
+            0, 0, 0, BAR_HEIGHT, fill=theme.INDIGO, width=0
         )
         self._threshold_marker = self._canvas.create_line(
             0, 0, 0, BAR_HEIGHT, fill=THRESHOLD_MARKER, width=2
         )
 
-        self._threshold_label = tk.Label(self.root, text="", anchor="w")
+        self._threshold_label = tk.Label(
+            self.root, text="", anchor="w", bg=theme.INK, fg=theme.TEXT_DIM
+        )
         self._threshold_label.pack(fill="x", padx=16, pady=(4, 8))
 
         self._cooldown_label = tk.Label(
-            self.root, text="", font=("Segoe UI", 13, "bold"), anchor="w"
+            self.root,
+            text="",
+            font=("Segoe UI", 13, "bold"),
+            anchor="w",
+            bg=theme.INK,
         )
         self._cooldown_label.pack(fill="x", padx=16, pady=(0, 16))
 
@@ -114,10 +142,9 @@ class MeterWindow:
             self._cooldown_label.configure(text="", fg=self.root.cget("bg"))
         else:
             self._level_label.configure(text=f"{reading.dbfs:.1f} dBFS")
-            over_threshold = reading.dbfs >= reading.threshold_dbfs
             self._canvas.itemconfigure(
                 self._bar,
-                fill=BAR_OVER_THRESHOLD_FILL if over_threshold else BAR_FILL,
+                fill=_bar_colour(reading.dbfs, reading.threshold_dbfs),
             )
             level_x = max(0, min(BAR_WIDTH, _meter_x(reading.dbfs)))
             self._canvas.coords(self._bar, 0, 0, level_x, BAR_HEIGHT)
