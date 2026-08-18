@@ -37,7 +37,7 @@ import tkinter as tk
 from datetime import datetime
 from typing import Callable
 
-from stfu import autostart
+from stfu import appicon, autostart
 from stfu.actions import ActionRegistry
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource
@@ -215,6 +215,7 @@ class App:
         self._tray_thread.start()
 
         self.root = tk.Tk()
+        appicon.set_window_icon(self.root)
         self.root.withdraw()
         self.root.after(PUMP_INTERVAL_MS, self._pump)
         self.root.mainloop()

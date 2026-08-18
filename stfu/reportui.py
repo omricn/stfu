@@ -9,6 +9,7 @@ from tkinter import filedialog, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from stfu import appicon
 from stfu.logstore import LogStore
 from stfu.reportdata import csv_rows, session_summary, table_rows, trigger_points
 
@@ -22,6 +23,7 @@ class ReportWindow:
     def show(self) -> None:
         sessions = self.store.sessions()
         root = tk.Tk()
+        appicon.set_window_icon(root)
         root.title("S.TFU report")
         root.geometry("980x680")
 

@@ -13,6 +13,8 @@ import random
 import tkinter as tk
 from pathlib import Path
 
+from stfu import appicon
+
 log = logging.getLogger(__name__)
 
 
@@ -90,6 +92,7 @@ def _fullscreen_root(fraction: float | None) -> tk.Tk:
     the screen. Both are override-redirect, so there is no title bar to close.
     """
     root = tk.Tk()
+    appicon.set_window_icon(root)
     root.configure(bg=OVERLAY_BG)
     root.overrideredirect(True)
     root.attributes("-topmost", True)

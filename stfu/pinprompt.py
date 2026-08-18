@@ -12,6 +12,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Callable
 
+from stfu import appicon
 from stfu.config import Config, verify_pin
 
 
@@ -40,6 +41,7 @@ class _PinDialog:
         self.result: str | None = None
 
         self.root = tk.Tk()
+        appicon.set_window_icon(self.root)
         self.root.title(title)
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)

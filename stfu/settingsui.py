@@ -11,7 +11,7 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 
-from stfu import autostart
+from stfu import appicon, autostart
 from stfu.calibrationui import CalibrationDialog
 from stfu.config import (
     SESSION_RESET_MODES,
@@ -42,6 +42,7 @@ class SettingsWindow:
 
     def show(self) -> None:
         self.root = tk.Tk()
+        appicon.set_window_icon(self.root)
         self.root.title("S.TFU settings")
         self.root.geometry("520x620")
         self.root.protocol("WM_DELETE_WINDOW", self._close)

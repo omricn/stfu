@@ -14,6 +14,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
+from stfu import appicon
 from stfu.audio import MicSource
 from stfu.calibration import (
     CalibrationResult,
@@ -73,6 +74,7 @@ class CalibrationDialog:
         dialog = tk.Tk() if owns_loop else tk.Toplevel(master)
         dialog.title("Recalibrate")
         dialog.geometry("420x220")
+        appicon.set_window_icon(dialog)
 
         self._cancel.set()
         self._render_token += 1

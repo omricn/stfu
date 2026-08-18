@@ -11,6 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+from stfu import appicon
 from stfu.audio import MicSource, list_input_devices, preferred_input_devices
 from stfu.calibration import CalibrationSamples, collect_sample, compute_thresholds
 from stfu.config import SAMPLE_RATE, Config, data_dir, save_config
@@ -66,6 +67,7 @@ class FirstRunWizard:
     def run(self) -> Config | None:
         """Show the wizard. Returns the finished Config, or None if abandoned."""
         self.root = tk.Tk()
+        appicon.set_window_icon(self.root)
         self.root.title("S.TFU setup")
         self.root.geometry("640x460")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)

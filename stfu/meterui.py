@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from stfu import appicon
 from stfu.levels import meter_from_dbfs
 from stfu.meter import MeterState
 
@@ -57,6 +58,7 @@ class MeterWindow:
 
     def show(self) -> None:
         self.root = tk.Tk()
+        appicon.set_window_icon(self.root)
         self.root.title("S.TFU - live meter")
         self.root.resizable(False, False)
         self.root.attributes("-topmost", True)
