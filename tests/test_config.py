@@ -97,3 +97,22 @@ def test_invalid_values_fall_back_to_defaults(tmp_path, field, value):
     path.write_text(json.dumps({field: value}))
     loaded = load_config(path)
     assert getattr(loaded, field) == getattr(Config(), field)
+
+
+def test_saving_keeps_a_backup_of_the_previous_config(tmp_path):
+    # The device pin, PIN hash and measured threshold cannot be regenerated.
+    # A bad write used to lose all three with nothing to fall back on -- which
+    # is exactly what happened once during development.
+    path = tmp_path / "config.json"
+    save_config(Config(spike_threshold_dbfs=-14.0, device_name="Headset"), path)
+    save_config(Config(), path)
+
+    restored = load_config(path.with_suffix(".json.bak"))
+    assert restored.spike_threshold_dbfs == -14.0
+    assert restored.device_name == "Headset"
+
+
+def test_the_first_save_has_nothing_to_back_up(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(), path)
+    assert not path.with_suffix(".json.bak").exists()

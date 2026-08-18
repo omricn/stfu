@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 from dataclasses import asdict, dataclass, fields
@@ -15,6 +16,8 @@ SESSION_RESET_MODES = ("session", "rolling_60m", "nightly")
 
 SAMPLE_RATE = 16_000
 FRAME_MS = 20
+
+log = logging.getLogger(__name__)
 
 _PBKDF2_ROUNDS = 200_000
 
@@ -130,6 +133,16 @@ def save_config(cfg: Config, path: Path | None = None) -> None:
     """Write atomically so a crash mid-write cannot corrupt the config."""
     path = Path(path) if path is not None else config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Keep the previous version. The device pin, the PIN hash and a measured
+    # threshold are the only things here that cannot be regenerated, and a
+    # single bad write otherwise loses all three with nothing to fall back on.
+    if path.exists():
+        try:
+            path.with_suffix(".json.bak").write_bytes(path.read_bytes())
+        except OSError:
+            log.warning("could not back up %s before overwriting", path)
+
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(asdict(cfg), indent=2), encoding="utf-8")
     os.replace(tmp, path)

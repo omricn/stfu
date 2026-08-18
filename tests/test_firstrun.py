@@ -122,12 +122,16 @@ def test_answers_become_a_config():
 
 
 def test_the_pin_is_hashed_not_stored():
+    # A PIN of "1234" would make this flaky: the hash is hex, so it contains
+    # "1234" by chance roughly once every thousand runs. Letters outside the
+    # hex alphabet can never appear in it.
     flow = FirstRunFlow()
-    flow.record(pin="1234")
+    flow.record(pin="swordfish")
     config = flow.to_config(Config())
     assert config.pin_hash
     assert config.pin_salt
-    assert "1234" not in config.pin_hash
+    assert "swordfish" not in config.pin_hash
+    assert "swordfish" not in config.pin_salt
 
 
 def test_the_produced_config_no_longer_needs_setup():
