@@ -99,11 +99,19 @@ def collect_sample(
     frames: int,
     on_progress: Callable[[float], None] | None = None,
     is_cancelled: Callable[[], bool] | None = None,
+    on_level: Callable[[float], None] | None = None,
 ) -> list[float]:
     """Read `frames` frames from an AudioSource, in dBFS.
 
     Stops early if the source runs dry or the caller cancels, so the wizard's
     Back button does not have to wait out a ten-second recording.
+
+    `on_level`, if given, is called with each frame's raw dBFS reading as it
+    arrives -- separate from `on_progress` (which only ever reports how far
+    through the sample the recording is, 0..1) so a caller wanting to react
+    to the actual live level, such as calibrationui.py's waveform, does not
+    have to instead reinterpret a completion fraction as sound. Optional and
+    additive: existing callers that only pass `on_progress` are unaffected.
     """
     if frames <= 0:
         return []
@@ -112,7 +120,10 @@ def collect_sample(
     for rms in source.frames():
         if is_cancelled is not None and is_cancelled():
             break
-        levels.append(dbfs_from_rms(rms))
+        level_dbfs = dbfs_from_rms(rms)
+        levels.append(level_dbfs)
+        if on_level is not None:
+            on_level(level_dbfs)
         if on_progress is not None:
             on_progress(len(levels) / frames)
         if len(levels) >= frames:

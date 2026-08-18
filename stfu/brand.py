@@ -44,6 +44,12 @@ _WAVE_LAG_PER_BAR = 0.16
 # Peak-to-peak swing around each bar's resting height.
 _WAVE_AMPLITUDE = 0.30
 
+# The smallest fraction of a bar's resting height still shown at level=0 --
+# silence reads as a small nub, not a total gap, so the mark stays
+# recognisable as the mark rather than disappearing (calibrationui.py: "the
+# waveform reacts to the recording level").
+_LEVEL_MIN_FACTOR = 0.12
+
 # Supersampled then downsampled with LANCZOS -- Pillow's rounded_rectangle
 # has no anti-aliasing of its own, and the pill ends look jagged at the
 # small sizes a title-bar or taskbar icon actually renders at (16-32px)
@@ -69,17 +75,22 @@ def animated_bar_heights(phase: float) -> tuple[float, ...]:
     return tuple(heights)
 
 
-def draw_mark(size: int, phase: float | None = None) -> Image.Image:
-    """Render the waveform mark at `size` x `size`, RGBA, transparent
-    background.
+def level_bar_heights(level: float) -> tuple[float, ...]:
+    """Per-bar height, 0..1, scaled by a live audio level (0..1, already
+    normalised by the caller).
 
-    `phase=None` (the default) draws the still, resting mark -- used for the
-    app icon and any static placement of the mark on a screen. A numeric
-    `phase` (see `animated_bar_heights`) draws one animated frame instead,
-    for the drawn-mark fallback splash.
+    Unlike `animated_bar_heights`, this is not time-driven -- it is one
+    instantaneous snapshot of "how loud right now", used by calibrationui.py
+    to make the mark itself react to the microphone rather than animate on
+    a timer. The bars keep the mark's usual relative proportions
+    (BASE_HEIGHTS); only their shared amplitude moves with the level.
     """
-    heights = BASE_HEIGHTS if phase is None else animated_bar_heights(phase)
+    level = max(0.0, min(1.0, level))
+    factor = _LEVEL_MIN_FACTOR + (1.0 - _LEVEL_MIN_FACTOR) * level
+    return tuple(base * factor for base in BASE_HEIGHTS)
 
+
+def _render(heights: tuple[float, ...], size: int) -> Image.Image:
     render_size = size * _SUPERSAMPLE
     image = Image.new("RGBA", (render_size, render_size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
@@ -104,3 +115,22 @@ def draw_mark(size: int, phase: float | None = None) -> Image.Image:
     if _SUPERSAMPLE != 1:
         image = image.resize((size, size), Image.LANCZOS)
     return image
+
+
+def draw_mark(size: int, phase: float | None = None) -> Image.Image:
+    """Render the waveform mark at `size` x `size`, RGBA, transparent
+    background.
+
+    `phase=None` (the default) draws the still, resting mark -- used for the
+    app icon and any static placement of the mark on a screen. A numeric
+    `phase` (see `animated_bar_heights`) draws one animated frame instead,
+    for the drawn-mark fallback splash.
+    """
+    heights = BASE_HEIGHTS if phase is None else animated_bar_heights(phase)
+    return _render(heights, size)
+
+
+def draw_mark_at_level(size: int, level: float) -> Image.Image:
+    """Render the mark scaled to a live audio level (0..1) instead of a time
+    phase -- see `level_bar_heights`."""
+    return _render(level_bar_heights(level), size)

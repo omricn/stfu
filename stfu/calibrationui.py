@@ -14,7 +14,9 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from stfu import appicon
+from PIL import ImageTk
+
+from stfu import appicon, brand, theme
 from stfu.audio import MicSource
 from stfu.calibration import (
     CalibrationResult,
@@ -23,9 +25,11 @@ from stfu.calibration import (
     compute_thresholds,
 )
 from stfu.config import Config
+from stfu.levels import meter_from_dbfs
 
 SAMPLE_SECONDS = {"quiet": 10, "speech": 10, "yell": 5}
 FRAMES_PER_SECOND = 50
+MARK_SIZE = 72
 
 
 class CalibrationDialog:
@@ -69,6 +73,8 @@ class CalibrationDialog:
     def show(self, master: tk.Misc) -> None:
         dialog = tk.Toplevel(master)
         dialog.title("Recalibrate")
+        theme.apply(dialog)
+        dialog.configure(bg=theme.INK)
 
         # Come to the front once, without staying pinned there. A window that
         # silently opened behind a still-showing overlay looked exactly like a
@@ -77,7 +83,7 @@ class CalibrationDialog:
         dialog.attributes("-topmost", True)
         dialog.after(200, lambda: dialog.attributes("-topmost", False))
 
-        dialog.geometry("420x220")
+        dialog.geometry("420x300")
         appicon.set_window_icon(dialog)
 
         self._cancel.set()
@@ -85,19 +91,48 @@ class CalibrationDialog:
         token = self._render_token
         self._cancel.clear()
 
+        # The mark itself does the job here (see docs/BRAND.md: "the
+        # waveform reacts to the recording level") -- it is redrawn from the
+        # live mic level during each sample, not animated on a timer. Starts
+        # at its quiet/resting size; update_mark (below) moves it once
+        # recording is under way. master= keeps this PhotoImage bound to
+        # this dialog's own interpreter (see tests/test_tk_variables.py).
+        mark_photo = ImageTk.PhotoImage(
+            brand.draw_mark_at_level(MARK_SIZE, 0.0), master=dialog
+        )
+        mark_label = tk.Label(dialog, image=mark_photo, bg=theme.INK)
+        mark_label.image = mark_photo
+        mark_label.pack(pady=(16, 4))
+
+        def update_mark(level_dbfs: float) -> None:
+            level = meter_from_dbfs(level_dbfs) / 100
+            photo = ImageTk.PhotoImage(
+                brand.draw_mark_at_level(MARK_SIZE, level), master=dialog
+            )
+            mark_label.configure(image=photo)
+            # Tk keeps no reference of its own; without this the image is
+            # collected and the label reverts to blank the moment this
+            # function returns (the same gotcha appicon.py and overlay.py
+            # already have to work around).
+            mark_label.image = photo
+
         instructions = tk.Label(
             dialog,
             text="Three short recordings. Press Start, then follow the prompt.",
             justify="left",
             anchor="w",
             wraplength=380,
+            bg=theme.INK,
+            fg=theme.TEXT,
         )
-        instructions.pack(fill="x", padx=16, pady=(16, 8))
+        instructions.pack(fill="x", padx=16, pady=(4, 8))
 
         progress = ttk.Progressbar(dialog, maximum=1.0)
         progress.pack(fill="x", padx=16, pady=8)
 
-        result_label = tk.Label(dialog, text="", justify="left", anchor="w")
+        result_label = tk.Label(
+            dialog, text="", justify="left", anchor="w", bg=theme.INK, fg=theme.TEXT_DIM
+        )
         result_label.pack(fill="x", padx=16, pady=8)
 
         def ui(fn) -> None:
@@ -141,6 +176,7 @@ class CalibrationDialog:
                             lambda f=f: progress.configure(value=f)
                         ),
                         is_cancelled=self._cancel.is_set,
+                        on_level=lambda lvl: ui(lambda lvl=lvl: update_mark(lvl)),
                     )
                     if self._cancel.is_set():
                         return
@@ -167,9 +203,10 @@ class CalibrationDialog:
 
             ui(apply_result)
 
-        tk.Button(
+        ttk.Button(
             dialog,
             text="Start",
+            style="Accent.TButton",
             command=lambda: threading.Thread(
                 target=run_calibration, daemon=True
             ).start(),
