@@ -13,7 +13,7 @@ import random
 import tkinter as tk
 from pathlib import Path
 
-from stfu import appicon
+from stfu import appicon, brand, theme
 
 log = logging.getLogger(__name__)
 
@@ -79,10 +79,14 @@ class ClickTracker:
 
 
 OVERLAY_FRACTION = 0.9
-OVERLAY_BG = "#111111"
-OVERLAY_FG = "#f5f5f5"
+# Already dark before the rebrand -- BRAND.md's own note here is "already
+# dark, add the mark" -- so this now points at the same INK the rest of the
+# app uses instead of its own separate near-black constant.
+OVERLAY_BG = theme.INK
+OVERLAY_FG = theme.TEXT
 BUTTON_SIZE = (140, 48)
 IMAGE_FRACTION = (0.5, 0.40)  # of screen width, height
+MARK_SIZE = 120
 
 
 def _fullscreen_root(master: tk.Misc, fraction: float | None) -> tk.Toplevel:
@@ -116,6 +120,31 @@ def _fullscreen_root(master: tk.Misc, fraction: float | None) -> tk.Toplevel:
     root.lift()
     root.focus_force()
     return root
+
+
+def _add_mark(root: tk.Toplevel, rely: float) -> tk.Label:
+    """The waveform mark, placed near the top of an overlay window (see
+    docs/BRAND.md: "Add the mark, and set the message in the wordmark's
+    style"). Each overlay is its own Toplevel, so each needs its own
+    PhotoImage built with master=root -- see tests/test_tk_variables.py."""
+    from PIL import ImageTk
+
+    mark_image = brand.draw_mark(MARK_SIZE)
+    photo = ImageTk.PhotoImage(mark_image, master=root)
+    label = tk.Label(root, image=photo, bg=OVERLAY_BG, borderwidth=0)
+    # Tk keeps no reference of its own; without this the image is collected
+    # and the label renders as an empty gap (the same gotcha the picture
+    # labels below already have to work around).
+    label.image = photo
+    label.place(relx=0.5, rely=rely, anchor="center")
+    return label
+
+
+def _wordmark_style(text: str) -> str:
+    """The overlay's own message, set in the wordmark's wide-tracked style
+    (see docs/BRAND.md) rather than as running text -- it is a mark-like
+    announcement, not a sentence."""
+    return theme.letter_spaced(text.upper())
 
 
 def _load_picture(path: Path | None, root, screen: tuple[int, int]):
@@ -181,14 +210,16 @@ class FourClickOverlay:
         root.bind("<Escape>", lambda _event: "break")
         root.bind("<Alt-F4>", lambda _event: "break")
 
+        _add_mark(root, rely=0.07)
+
         tk.Label(
             root,
-            text=self.message,
+            text=_wordmark_style(self.message),
             bg=OVERLAY_BG,
-            fg=OVERLAY_FG,
-            font=("Segoe UI", 48, "bold"),
+            fg=theme.RED,
+            font=("Segoe UI", 44, "bold"),
             wraplength=int(root.winfo_screenwidth() * 0.7),
-        ).place(relx=0.5, rely=0.14, anchor="center")
+        ).place(relx=0.5, rely=0.20, anchor="center")
 
         photo = _load_picture(
             self.picture, root, (root.winfo_screenwidth(), root.winfo_screenheight())
@@ -204,7 +235,7 @@ class FourClickOverlay:
             root,
             text=self._counter_text(),
             bg=OVERLAY_BG,
-            fg="#9a9a9a",
+            fg=theme.TEXT_DIM,
             font=("Segoe UI", 18),
         )
         counter.place(relx=0.5, rely=0.80, anchor="center")
@@ -258,14 +289,16 @@ class DesktopMessage:
         root = _fullscreen_root(self.master, None)
         root.protocol("WM_DELETE_WINDOW", lambda: None)
 
+        _add_mark(root, rely=0.14)
+
         tk.Label(
             root,
-            text=self.message,
+            text=_wordmark_style(self.message),
             bg=OVERLAY_BG,
-            fg=OVERLAY_FG,
-            font=("Segoe UI", 56, "bold"),
+            fg=theme.RED,
+            font=("Segoe UI", 52, "bold"),
             wraplength=int(root.winfo_screenwidth() * 0.7),
-        ).place(relx=0.5, rely=0.26, anchor="center")
+        ).place(relx=0.5, rely=0.30, anchor="center")
 
         photo = _load_picture(
             self.picture, root, (root.winfo_screenwidth(), root.winfo_screenheight())

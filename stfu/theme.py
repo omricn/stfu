@@ -139,7 +139,11 @@ def apply(root: tk.Misc) -> ttk.Style:
         foreground=TEXT,
         padding=(10, 6),
     )
-    style.map("Accent.TButton", background=[("active", "#5951d1")])
+    style.map(
+        "Accent.TButton",
+        background=[("disabled", SURFACE_HI), ("active", "#5951d1")],
+        foreground=[("disabled", TEXT_DIM)],
+    )
 
     style.configure(
         "TEntry",

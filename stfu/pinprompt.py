@@ -17,10 +17,15 @@ closed, but the window that was meant to follow never appeared.
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 from typing import Callable
 
-from stfu import appicon
+from PIL import ImageTk
+
+from stfu import appicon, brand, theme
 from stfu.config import Config, verify_pin
+
+MARK_SIZE = 40
 
 
 class _PinDialog:
@@ -55,25 +60,44 @@ class _PinDialog:
         # widgets in it, which is a far worse failure than a missing icon.
         self.root.title(title)
         appicon.set_window_icon(self.root)
+        theme.apply(self.root)
+        self.root.configure(bg=theme.INK)
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
 
-        tk.Label(self.root, text=prompt).pack(padx=16, pady=(16, 4))
+        # Small and centred, the mark above the field (see docs/BRAND.md).
+        # master= keeps this PhotoImage bound to this dialog's own
+        # interpreter -- see tests/test_tk_variables.py.
+        mark_image = brand.draw_mark(MARK_SIZE)
+        self._mark_photo = ImageTk.PhotoImage(mark_image, master=self.root)
+        tk.Label(self.root, image=self._mark_photo, bg=theme.INK).pack(
+            padx=24, pady=(20, 4)
+        )
+
+        tk.Label(
+            self.root, text=prompt, bg=theme.INK, fg=theme.TEXT, font=theme.FONT_BODY
+        ).pack(padx=24, pady=(0, 8))
 
         self._var = tk.StringVar(master=self.root, value="")
-        entry = tk.Entry(self.root, textvariable=self._var, show="*", width=20)
-        entry.pack(padx=16, pady=4)
+        entry = ttk.Entry(
+            self.root, textvariable=self._var, show="*", width=20, justify="center"
+        )
+        entry.pack(padx=24, pady=4)
         entry.bind("<KeyRelease>", self._on_key)
         entry.bind("<Return>", lambda _e: self._submit())
 
-        self._hint = tk.Label(self.root, text="", fg="#a00000")
-        self._hint.pack(padx=16)
+        self._hint = tk.Label(
+            self.root, text="", bg=theme.INK, fg=theme.RED, font=theme.FONT_BODY
+        )
+        self._hint.pack(padx=24)
 
-        buttons = tk.Frame(self.root)
-        buttons.pack(pady=(4, 16))
-        tk.Button(buttons, text="OK", command=self._submit).pack(side="left", padx=4)
-        tk.Button(buttons, text="Cancel", command=self._cancel).pack(
+        buttons = tk.Frame(self.root, bg=theme.INK)
+        buttons.pack(pady=(8, 20))
+        ttk.Button(
+            buttons, text="OK", command=self._submit, style="Accent.TButton"
+        ).pack(side="left", padx=4)
+        ttk.Button(buttons, text="Cancel", command=self._cancel).pack(
             side="left", padx=4
         )
 

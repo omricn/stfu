@@ -2,6 +2,12 @@
 
 Renders FirstRunFlow. All the rules live in the flow; this only draws them and
 collects answers.
+
+This is the one other sanctioned owner of a `tk.Tk()` besides app.py (see
+app.py's module docstring and tests/test_single_tk_root.py) -- it runs
+before that root exists and is destroyed before it is created. It is also,
+by the same token, the one screen in this app that cannot simply call
+`theme.apply()` on someone else's root: it builds and owns its own.
 """
 
 from __future__ import annotations
@@ -11,16 +17,22 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from stfu import appicon
+from PIL import ImageTk
+
+from stfu import appicon, brand, theme
 from stfu.audio import MicSource, list_input_devices, preferred_input_devices
 from stfu.calibration import CalibrationSamples, collect_sample, compute_thresholds
 from stfu.config import SAMPLE_RATE, Config, data_dir, save_config
-from stfu.firstrun import FirstRunFlow
+from stfu.firstrun import STEPS, FirstRunFlow
 
 log = logging.getLogger(__name__)
 
 SAMPLE_SECONDS = {"quiet": 10, "speech": 10, "yell": 5}
 FRAMES_PER_SECOND = 50
+
+MARK_SIZE = 56
+DOT_SIZE = 8
+DOT_GAP = 14
 
 TITLES = {
     "welcome": "S.TFU",
@@ -63,22 +75,49 @@ class FirstRunWizard:
         self._cancelled = False
         self._render_token = 0
         self._cancel = threading.Event()
+        self._mark_photo: ImageTk.PhotoImage | None = None
+        self._dots: list[int] = []
+        self._dots_canvas: tk.Canvas | None = None
 
     def run(self) -> Config | None:
         """Show the wizard. Returns the finished Config, or None if abandoned."""
         self.root = tk.Tk()
         appicon.set_window_icon(self.root)
+        theme.apply(self.root)
+        self.root.configure(bg=theme.INK)
         self.root.title("S.TFU setup")
-        self.root.geometry("640x460")
+        self.root.geometry("640x480")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        self._body = tk.Frame(self.root)
+        header = tk.Frame(self.root, bg=theme.INK)
+        header.pack(fill="x", padx=24, pady=(20, 4))
+
+        # Built once and kept for the wizard's whole life, not per-render --
+        # the mark never changes between steps, and master= keeps this
+        # PhotoImage bound to this window's own interpreter (see
+        # tests/test_tk_variables.py).
+        mark_image = brand.draw_mark(MARK_SIZE)
+        self._mark_photo = ImageTk.PhotoImage(mark_image, master=self.root)
+        tk.Label(header, image=self._mark_photo, bg=theme.INK).pack()
+
+        self._dots_canvas = tk.Canvas(
+            header,
+            height=DOT_SIZE + 4,
+            bg=theme.INK,
+            highlightthickness=0,
+        )
+        self._dots_canvas.pack(pady=(10, 0))
+        self._build_dots()
+
+        self._body = tk.Frame(self.root, bg=theme.INK)
         self._body.pack(fill="both", expand=True, padx=24, pady=16)
 
-        controls = tk.Frame(self.root)
-        controls.pack(fill="x", padx=24, pady=12)
-        tk.Button(controls, text="Back", command=self._on_back).pack(side="left")
-        self._next = tk.Button(controls, text="Next", command=self._on_next)
+        controls = tk.Frame(self.root, bg=theme.INK)
+        controls.pack(fill="x", padx=24, pady=(0, 20))
+        ttk.Button(controls, text="Back", command=self._on_back).pack(side="left")
+        self._next = ttk.Button(
+            controls, text="Next", command=self._on_next, style="Accent.TButton"
+        )
         self._next.pack(side="right")
 
         self._render()
@@ -110,6 +149,50 @@ class FirstRunWizard:
         for child in list(self._body.winfo_children()):
             child.destroy()
 
+    # --- the tri-colour step dots ------------------------------------------
+
+    def _build_dots(self) -> None:
+        """One dot per step, evenly spaced. Coloured by the step's position
+        in the flow (early = indigo, mid = amber, late = red -- the same
+        accent order the meter and report use), filled once passed, hollow
+        ahead -- so progress reads at a glance without a caption."""
+        canvas = self._dots_canvas
+        count = len(STEPS)
+        width = count * DOT_GAP
+        canvas.configure(width=width)
+        self._dots = []
+        for index in range(count):
+            x = index * DOT_GAP + DOT_GAP / 2
+            dot = canvas.create_oval(
+                x - DOT_SIZE / 2,
+                2,
+                x + DOT_SIZE / 2,
+                2 + DOT_SIZE,
+                outline=theme.HAIRLINE,
+                width=1,
+            )
+            self._dots.append(dot)
+
+    def _refresh_dots(self) -> None:
+        canvas = self._dots_canvas
+        if canvas is None:
+            return
+        current = self.flow.index
+        count = len(STEPS)
+        for index, dot in enumerate(self._dots):
+            fraction = index / max(1, count - 1)
+            colour = (
+                theme.RED
+                if fraction > 0.66
+                else theme.AMBER
+                if fraction > 0.33
+                else theme.INDIGO
+            )
+            if index <= current:
+                canvas.itemconfigure(dot, fill=colour, outline=colour)
+            else:
+                canvas.itemconfigure(dot, fill=theme.INK, outline=theme.HAIRLINE)
+
     def _render(self) -> None:
         # Any background work from the previous step must stop before its
         # widgets are destroyed -- Back during calibration otherwise leaves a
@@ -117,9 +200,15 @@ class FirstRunWizard:
         self._cancel.set()
         self._render_token += 1
         self._clear()
+        self._refresh_dots()
         step = self.flow.current
         tk.Label(
-            self._body, text=TITLES[step], font=("Segoe UI", 20, "bold"), anchor="w"
+            self._body,
+            text=TITLES[step],
+            font=theme.FONT_TITLE,
+            bg=theme.INK,
+            fg=theme.TEXT,
+            anchor="w",
         ).pack(fill="x", pady=(0, 12))
 
         renderer = getattr(self, f"_render_{step}", None)
@@ -132,6 +221,9 @@ class FirstRunWizard:
                 justify="left",
                 anchor="w",
                 wraplength=560,
+                bg=theme.INK,
+                fg=theme.TEXT,
+                font=theme.FONT_BODY,
             ).pack(fill="x")
 
         self._refresh_next()
@@ -160,15 +252,26 @@ class FirstRunWizard:
 
         root.after(0, apply)
 
+    def _label(self, text: str, **kwargs) -> tk.Label:
+        """A body label pre-filled with the dark theme's colours -- classic
+        tk.Label ignores ttk styles entirely, so every one of these needs its
+        own bg/fg (see theme.py's module docstring)."""
+        opts = dict(
+            justify="left",
+            anchor="w",
+            bg=theme.INK,
+            fg=theme.TEXT,
+            font=theme.FONT_BODY,
+        )
+        opts.update(kwargs)
+        return tk.Label(self._body, text=text, **opts)
+
     # --- steps that need more than a paragraph -------------------------------
 
     def _render_device(self) -> None:
-        tk.Label(
-            self._body,
-            text="Pick the microphone you actually use, then check the meter moves "
+        self._label(
+            "Pick the microphone you actually use, then check the meter moves "
             "when you speak.",
-            justify="left",
-            anchor="w",
             wraplength=560,
         ).pack(fill="x", pady=(0, 8))
 
@@ -178,7 +281,21 @@ class FirstRunWizard:
         # stays available via `stfu.cli devices` for anyone whose device the
         # filter hid.
         devices = preferred_input_devices(list_input_devices())
-        listbox = tk.Listbox(self._body, height=10)
+        # Listbox has no ttk equivalent and ignores ttk styles entirely --
+        # it is coloured directly, the same way every classic tk widget here
+        # has to be (see theme.py's module docstring).
+        listbox = tk.Listbox(
+            self._body,
+            height=10,
+            bg=theme.SURFACE,
+            fg=theme.TEXT,
+            selectbackground=theme.INDIGO,
+            selectforeground=theme.TEXT,
+            highlightthickness=1,
+            highlightbackground=theme.HAIRLINE,
+            highlightcolor=theme.INDIGO,
+            borderwidth=0,
+        )
         for device in devices:
             listbox.insert("end", f"{device.name}  |  {device.hostapi}")
         listbox.pack(fill="both", expand=True)
@@ -196,11 +313,8 @@ class FirstRunWizard:
         listbox.bind("<<ListboxSelect>>", choose)
 
     def _render_calibrate(self) -> None:
-        instructions = tk.Label(
-            self._body,
-            text="Three short recordings. Press Start, then follow the prompt.",
-            justify="left",
-            anchor="w",
+        instructions = self._label(
+            "Three short recordings. Press Start, then follow the prompt.",
             wraplength=560,
         )
         instructions.pack(fill="x", pady=(0, 8))
@@ -208,7 +322,7 @@ class FirstRunWizard:
         progress = ttk.Progressbar(self._body, maximum=1.0)
         progress.pack(fill="x", pady=8)
 
-        result_label = tk.Label(self._body, text="", justify="left", anchor="w")
+        result_label = self._label("")
         result_label.pack(fill="x", pady=8)
 
         def run_calibration() -> None:
@@ -273,7 +387,7 @@ class FirstRunWizard:
             )
             self._ui(token, self._refresh_next)
 
-        tk.Button(
+        ttk.Button(
             self._body,
             text="Start",
             command=lambda: threading.Thread(
@@ -282,33 +396,34 @@ class FirstRunWizard:
         ).pack()
 
     def _render_pin(self) -> None:
-        tk.Label(
-            self._body,
-            text="The PIN is needed to change settings or close the app.\n"
+        self._label(
+            "The PIN is needed to change settings or close the app.\n"
             "It is a speed bump, not a lock.",
-            justify="left",
-            anchor="w",
             wraplength=560,
         ).pack(fill="x", pady=(0, 8))
 
-        first = tk.Entry(self._body, show="*", width=20)
-        second = tk.Entry(self._body, show="*", width=20)
-        note = tk.Label(self._body, text="", anchor="w")
+        first_var = tk.StringVar(master=self.root, value="")
+        second_var = tk.StringVar(master=self.root, value="")
+        first = ttk.Entry(self._body, textvariable=first_var, show="*", width=20)
+        second = ttk.Entry(self._body, textvariable=second_var, show="*", width=20)
+        note = self._label("", fg=theme.RED)
 
-        tk.Label(self._body, text="PIN", anchor="w").pack(fill="x")
+        self._label("PIN").pack(fill="x")
         first.pack(anchor="w", pady=(0, 8))
-        tk.Label(self._body, text="Confirm", anchor="w").pack(fill="x")
+        self._label("Confirm").pack(fill="x")
         second.pack(anchor="w")
         note.pack(fill="x", pady=8)
 
         def check(_event=None) -> None:
-            a, b = first.get(), second.get()
+            a, b = first_var.get(), second_var.get()
             if a and a == b:
                 self.flow.record(pin=a)
-                note.configure(text="PIN set.")
+                note.configure(text="PIN set.", fg=theme.TEXT_DIM)
             else:
                 self.flow.answers.pop("pin", None)
-                note.configure(text="" if not b else "The two entries differ.")
+                note.configure(
+                    text="" if not b else "The two entries differ.", fg=theme.RED
+                )
             self._refresh_next()
 
         first.bind("<KeyRelease>", check)
@@ -319,23 +434,15 @@ class FirstRunWizard:
         for rung in ("first", "repeat"):
             (sounds_root / rung).mkdir(parents=True, exist_ok=True)
 
-        tk.Label(
-            self._body,
-            text=BODIES["sounds"],
-            justify="left",
-            anchor="w",
-            wraplength=560,
-        ).pack(fill="x")
-        tk.Label(self._body, text=str(sounds_root), anchor="w", fg="#555555").pack(
-            fill="x", pady=8
-        )
+        self._label(BODIES["sounds"], wraplength=560).pack(fill="x")
+        self._label(str(sounds_root), fg=theme.TEXT_DIM).pack(fill="x", pady=8)
 
         def open_folder() -> None:
             import os
 
             os.startfile(sounds_root)  # noqa: S606 - opening a known local folder
 
-        tk.Button(self._body, text="Open the folder", command=open_folder).pack(
+        ttk.Button(self._body, text="Open the folder", command=open_folder).pack(
             anchor="w"
         )
 
@@ -349,25 +456,17 @@ class FirstRunWizard:
         def toggle() -> None:
             self.flow.record(autostart=bool(variable.get()))
 
-        tk.Checkbutton(
+        ttk.Checkbutton(
             self._body,
             text="Start S.TFU when Windows starts",
             variable=variable,
             command=toggle,
         ).pack(anchor="w")
-        tk.Label(
-            self._body,
-            text="\nThat is everything. Press Next to finish.",
-            justify="left",
-            anchor="w",
-        ).pack(fill="x")
+        self._label("\nThat is everything. Press Next to finish.").pack(fill="x")
 
     def _render_test(self) -> None:
-        tk.Label(
-            self._body,
-            text="You can test it properly once setup finishes -- the tray icon "
+        self._label(
+            "You can test it properly once setup finishes -- the tray icon "
             "has a live meter.\n\nPress Next to carry on.",
-            justify="left",
-            anchor="w",
             wraplength=560,
         ).pack(fill="x")
