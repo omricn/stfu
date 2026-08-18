@@ -44,8 +44,14 @@ _icon_path = str(Path(tempfile.gettempdir()) / "stfu_build_icon.ico")
 _icon_image.save(_icon_path, sizes=[(size, size) for size in ICON_SIZES])
 
 datas = collect_data_files("matplotlib")
-# Bundled default sounds and pictures, preserving the tree so assets_dir()
-# finds them under sys._MEIPASS at runtime.
+# Bundled default sounds, pictures, and brand assets (stfu/assets/brand/ --
+# splashui.py's logo.gif, or whatever gif replaces it), preserving the tree
+# so assets_dir() finds them under sys._MEIPASS at runtime. This one entry
+# already covers brand/ recursively along with sounds/ and images/ -- a
+# directory source in PyInstaller's `datas` is walked recursively, which a
+# real build was used to confirm (build/stfu/PKG-00.toc and EXE-00.toc both
+# list stfu\assets\brand\logo.gif after building with only this line) --
+# it does not need, and should not get, a separate entry of its own.
 datas += [("stfu/assets", "stfu/assets")]
 
 a = Analysis(
