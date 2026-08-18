@@ -11,7 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from stfu.audio import MicSource, list_input_devices
+from stfu.audio import MicSource, list_input_devices, preferred_input_devices
 from stfu.calibration import CalibrationSamples, collect_sample, compute_thresholds
 from stfu.config import SAMPLE_RATE, Config, data_dir, save_config
 from stfu.firstrun import FirstRunFlow
@@ -170,7 +170,12 @@ class FirstRunWizard:
             wraplength=560,
         ).pack(fill="x", pady=(0, 8))
 
-        devices = list_input_devices()
+        # The raw list has one entry per host API per device -- 19 entries
+        # for about 5 physical devices on a typical machine, several of them
+        # not microphones at all. Filtered down for the wizard; the full list
+        # stays available via `stfu.cli devices` for anyone whose device the
+        # filter hid.
+        devices = preferred_input_devices(list_input_devices())
         listbox = tk.Listbox(self._body, height=10)
         for device in devices:
             listbox.insert("end", f"{device.name}  |  {device.hostapi}")

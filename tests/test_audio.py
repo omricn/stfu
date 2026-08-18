@@ -1,12 +1,61 @@
 import pytest
 
-from stfu.audio import FakeSource, InputDevice, find_device
+from stfu.audio import FakeSource, InputDevice, find_device, preferred_input_devices
 
 
 DEVICES = [
     InputDevice(index=1, name="Microphone (HyperX Cloud II)", hostapi="Windows WASAPI"),
     InputDevice(index=2, name="Microphone (Realtek Audio)", hostapi="MME"),
     InputDevice(index=3, name="Microphone (HyperX Cloud II)", hostapi="MME"),
+]
+
+# The 19 devices PortAudio enumerated on the machine that surfaced F2, in
+# enumeration order. One headset and one Intel Smart Sound array, each
+# repeated once per host API; two host-API aliases that are not capture
+# endpoints at all; three raw Bluetooth driver strings; and the MME name for
+# the Intel array truncated to PortAudio's 31-character MME limit.
+_REAL_MACHINE_DEVICES = [
+    InputDevice(0, "Microsoft Sound Mapper - Input", "MME"),
+    InputDevice(1, "Headset (Baseus Bowie WM02)", "MME"),
+    InputDevice(2, "Microphone Array (Intel® Smart ", "MME"),
+    InputDevice(3, "Primary Sound Capture Driver", "Windows DirectSound"),
+    InputDevice(4, "Headset (Baseus Bowie WM02)", "Windows DirectSound"),
+    InputDevice(
+        5,
+        "Microphone Array (Intel® Smart Sound Technology for Digital Microphones)",
+        "Windows DirectSound",
+    ),
+    InputDevice(
+        6,
+        "Microphone Array (Intel® Smart Sound Technology for Digital Microphones)",
+        "Windows WASAPI",
+    ),
+    InputDevice(7, "Headset (Baseus Bowie WM02)", "Windows WASAPI"),
+    InputDevice(8, "Stereo Mix (Realtek HD Audio Stereo input)", "Windows WDM-KS"),
+    InputDevice(9, "PC Speaker (Realtek HD Audio output with SST)", "Windows WDM-KS"),
+    InputDevice(
+        10, "PC Speaker (Realtek HD Audio 2nd output with SST)", "Windows WDM-KS"
+    ),
+    InputDevice(11, "Microphone (Realtek HD Audio Mic input)", "Windows WDM-KS"),
+    InputDevice(12, "Microphone Array 1 ()", "Windows WDM-KS"),
+    InputDevice(13, "Microphone Array 2 ()", "Windows WDM-KS"),
+    InputDevice(
+        14,
+        r"Input (@System32\drivers\bthhfenum.sys,#2;%1 Hands-Free%0;(Baseus Bowie WM02))",
+        "Windows WDM-KS",
+    ),
+    InputDevice(
+        15,
+        r"Input (@System32\drivers\btha2dp.sys,#1;%1%0;(Baseus Bowie WM02))",
+        "Windows WDM-KS",
+    ),
+    InputDevice(
+        16,
+        r"Headset (@System32\drivers\bthhfenum.sys,#2;%1 Hands-Free%0;(Baseus Bowie WM02))",
+        "Windows WDM-KS",
+    ),
+    InputDevice(17, "Microphone (Realtek USB Audio)", "Windows WDM-KS"),
+    InputDevice(18, "Microphone (VIAVAD Wave)", "Windows WDM-KS"),
 ]
 
 
@@ -45,3 +94,77 @@ def test_fake_source_can_simulate_an_absent_device():
     source = FakeSource([], available=False)
     assert source.available is False
     assert list(source.frames()) == []
+
+
+# --- preferred_input_devices -------------------------------------------
+
+
+def test_drops_host_api_aliases_and_non_capture_endpoints():
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    names = [d.name for d in filtered]
+    assert "Microsoft Sound Mapper - Input" not in names
+    assert "Primary Sound Capture Driver" not in names
+    assert not any(name.startswith("PC Speaker") for name in names)
+
+
+def test_drops_raw_driver_strings():
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    assert not any("@System32\\" in d.name for d in filtered)
+
+
+def test_headset_survives_as_exactly_one_wasapi_entry():
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    headsets = [d for d in filtered if d.name == "Headset (Baseus Bowie WM02)"]
+    assert len(headsets) == 1
+    assert headsets[0].hostapi == "Windows WASAPI"
+    assert headsets[0].index == 7
+
+
+def test_mme_truncated_name_merges_with_its_untruncated_sibling():
+    """MME truncates to 31 chars, so the Intel Smart Sound array's MME entry
+    does not string-match its WASAPI/DirectSound sibling. It must still
+    collapse to one entry, not survive as a duplicate."""
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    intel_entries = [d for d in filtered if d.name.startswith("Microphone Array (Intel")]
+    assert len(intel_entries) == 1
+    assert intel_entries[0].hostapi == "Windows WASAPI"
+    assert (
+        intel_entries[0].name
+        == "Microphone Array (Intel® Smart Sound Technology for Digital Microphones)"
+    )
+
+
+def test_exact_filtered_list_from_the_real_machine_devices():
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    assert [(d.name, d.hostapi) for d in filtered] == [
+        ("Headset (Baseus Bowie WM02)", "Windows WASAPI"),
+        (
+            "Microphone Array (Intel® Smart Sound Technology for Digital Microphones)",
+            "Windows WASAPI",
+        ),
+        ("Stereo Mix (Realtek HD Audio Stereo input)", "Windows WDM-KS"),
+        ("Microphone (Realtek HD Audio Mic input)", "Windows WDM-KS"),
+        ("Microphone Array 1 ()", "Windows WDM-KS"),
+        ("Microphone Array 2 ()", "Windows WDM-KS"),
+        ("Microphone (Realtek USB Audio)", "Windows WDM-KS"),
+        ("Microphone (VIAVAD Wave)", "Windows WDM-KS"),
+    ]
+
+
+def test_devices_with_distinct_names_under_31_chars_are_not_merged():
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    names = {d.name for d in filtered}
+    assert "Microphone Array 1 ()" in names
+    assert "Microphone Array 2 ()" in names
+
+
+def test_preserves_first_occurrence_order_between_groups():
+    filtered = preferred_input_devices(_REAL_MACHINE_DEVICES)
+    names = [d.name for d in filtered]
+    assert names.index("Headset (Baseus Bowie WM02)") < names.index(
+        "Stereo Mix (Realtek HD Audio Stereo input)"
+    )
+
+
+def test_returns_empty_list_for_no_devices():
+    assert preferred_input_devices([]) == []

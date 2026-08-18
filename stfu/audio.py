@@ -58,6 +58,89 @@ def list_input_devices() -> list[InputDevice]:
     return devices
 
 
+_HOSTAPI_PREFERENCE = [
+    "Windows WASAPI",
+    "Windows DirectSound",
+    "MME",
+    "Windows WDM-KS",
+]
+
+# PortAudio enumerates every device once per host API, so one physical
+# headset can appear three or four times. Anything starting with one of these
+# is a host-API alias or a virtual endpoint, not a capture device someone
+# would choose -- e.g. "Microsoft Sound Mapper - Input", "Primary Sound
+# Capture Driver", "PC Speaker (...)".
+_JUNK_NAME_PREFIXES = (
+    "Microsoft Sound Mapper",
+    "Primary Sound Capture Driver",
+    "PC Speaker",
+)
+
+# Raw Windows driver strings PortAudio surfaces for some Bluetooth endpoints,
+# e.g. "Input (@System32\\drivers\\bthhfenum.sys,#2;%1 Hands-Free%0;(...))".
+# Not something a user could recognise as their headset.
+_DRIVER_STRING_MARKERS = ("@System32\\", ";%1")
+
+# MME truncates device names to 31 characters. Grouping strictly by full name
+# would leave a truncated MME entry (e.g. "Microphone Array (Intel® Smart ")
+# ungrouped with its untruncated WASAPI/DirectSound sibling, surviving as a
+# spurious duplicate. Folding every name to this length before grouping fixes
+# that; the (judged unlikely, and not present in any known device list here)
+# cost is that two distinct devices whose names agree on the first 31
+# characters would be merged into one entry.
+_MME_TRUNCATION_LENGTH = 31
+
+
+def _is_junk_device_name(name: str) -> bool:
+    if name.startswith(_JUNK_NAME_PREFIXES):
+        return True
+    return any(marker in name for marker in _DRIVER_STRING_MARKERS)
+
+
+def _hostapi_rank(hostapi: str) -> int:
+    try:
+        return _HOSTAPI_PREFERENCE.index(hostapi)
+    except ValueError:
+        return len(_HOSTAPI_PREFERENCE)
+
+
+def _grouping_key(name: str) -> str:
+    return name[:_MME_TRUNCATION_LENGTH]
+
+
+def preferred_input_devices(devices: list[InputDevice]) -> list[InputDevice]:
+    """Collapse PortAudio's one-entry-per-host-API enumeration into one entry
+    per physical device, for display in the wizard.
+
+    Junk entries (host-API aliases, non-capture endpoints, raw driver
+    strings) are dropped outright. What remains is grouped by name --
+    truncated to MME's 31-character limit so a truncated MME entry merges
+    with its untruncated sibling rather than surviving as a duplicate -- and
+    within each group the host API is preferred in the order WASAPI >
+    DirectSound > MME > WDM-KS, since WASAPI is the modern shared-mode path
+    and the lowest latency of the four.
+
+    Groups are returned in the order their first surviving member was
+    enumerated, so the list is stable between runs. The full, unfiltered list
+    stays available via list_input_devices() and `stfu.cli devices`.
+    """
+    order: list[str] = []
+    best: dict[str, InputDevice] = {}
+
+    for device in devices:
+        if _is_junk_device_name(device.name):
+            continue
+        key = _grouping_key(device.name)
+        current = best.get(key)
+        if current is None:
+            order.append(key)
+            best[key] = device
+        elif _hostapi_rank(device.hostapi) < _hostapi_rank(current.hostapi):
+            best[key] = device
+
+    return [best[key] for key in order]
+
+
 def find_device(
     name: str, hostapi: str, devices: list[InputDevice] | None = None
 ) -> InputDevice | None:
