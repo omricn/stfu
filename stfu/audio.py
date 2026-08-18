@@ -18,10 +18,28 @@ from typing import Iterator, Protocol
 
 import numpy as np
 
-from stfu.config import FRAME_MS, SAMPLE_RATE
+from stfu.config import FRAME_MS
 from stfu.levels import rms_of_frame
 
-FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS // 1000  # 320 samples at 16 kHz / 20 ms
+
+def frame_samples_for_rate(sample_rate: float, frame_ms: int = FRAME_MS) -> int:
+    """Sample count for one `frame_ms` frame at `sample_rate`.
+
+    F6: the stream used to force samplerate=16000 no matter what the device's
+    native rate was, so Windows resampled every buffer on the way in for a
+    device that runs at 44100 or 48000 (the common case). Opening at the
+    device's own default rate removes that resampling step, but the
+    blocksize (in samples) has to scale with it to keep each frame at
+    `frame_ms` -- the duration the detector's rolling windows assume one
+    frame equals, regardless of what rate produced it.
+
+    Rounded rather than truncated: a rate that does not divide frame_ms
+    evenly (e.g. 11025 Hz) would otherwise drift the frame duration low by up
+    to a whole sample's worth every frame. round() keeps it within half a
+    sample of exactly `frame_ms`, and floors at 1 so a degenerate rate can
+    never produce a zero-length block.
+    """
+    return max(1, round(sample_rate * frame_ms / 1000))
 
 
 @dataclass(frozen=True)
@@ -192,6 +210,10 @@ class MicSource:
         self._queue: queue.Queue[float] = queue.Queue(maxsize=max_queue)
         self._stream = None
         self._stop = threading.Event()
+        # Set by open() to whatever the device's own default rate turned out
+        # to be (F6) -- there is no fixed value any more, so nothing before
+        # a successful open() can know it.
+        self.samplerate: float | None = None
 
     @property
     def available(self) -> bool:
@@ -215,6 +237,13 @@ class MicSource:
         headset being unplugged and plugged back in is the normal case here,
         not an edge case; without this, a reopened source starts a stream but
         frames() exits immediately and yields nothing.
+
+        Opens at the device's own default sample rate rather than forcing
+        16 kHz (F6): loudness does not care about sample rate, and forcing
+        one that is not the device's native rate makes Windows resample
+        every buffer on the way in. The blocksize is derived from that rate
+        so each frame is still ~20ms -- see frame_samples_for_rate -- which
+        is the frame duration the detector's rolling windows are sized in.
         """
         import sounddevice as sd
 
@@ -222,15 +251,18 @@ class MicSource:
         if device is None:
             return False
         self._stop.clear()
+        samplerate = float(sd.query_devices(device.index)["default_samplerate"])
+        blocksize = frame_samples_for_rate(samplerate, FRAME_MS)
         self._stream = sd.InputStream(
             device=device.index,
             channels=1,
-            samplerate=SAMPLE_RATE,
-            blocksize=FRAME_SAMPLES,
+            samplerate=samplerate,
+            blocksize=blocksize,
             dtype="float32",
             callback=self._callback,
         )
         self._stream.start()
+        self.samplerate = samplerate
         return True
 
     def close(self) -> None:

@@ -1,6 +1,12 @@
 import pytest
 
-from stfu.audio import FakeSource, InputDevice, find_device, preferred_input_devices
+from stfu.audio import (
+    FakeSource,
+    InputDevice,
+    find_device,
+    frame_samples_for_rate,
+    preferred_input_devices,
+)
 
 
 DEVICES = [
@@ -168,3 +174,44 @@ def test_preserves_first_occurrence_order_between_groups():
 
 def test_returns_empty_list_for_no_devices():
     assert preferred_input_devices([]) == []
+
+
+# --- frame_samples_for_rate (F6) ----------------------------------------
+#
+# The capture stream used to force samplerate=16000 regardless of the
+# device's native rate, so Windows resampled every buffer on the way in.
+# Opening at the device's own default rate removes that step, but the frame
+# size (in samples) has to move with it to keep each frame at the 20ms the
+# detector's rolling windows assume one frame equals.
+
+
+def test_matches_the_old_hardcoded_value_at_16khz():
+    # 320 samples at 16 kHz / 20 ms -- the constant this replaces.
+    assert frame_samples_for_rate(16_000, frame_ms=20) == 320
+
+
+def test_divides_evenly_at_44100hz():
+    assert frame_samples_for_rate(44_100, frame_ms=20) == 882
+
+
+def test_divides_evenly_at_48000hz():
+    assert frame_samples_for_rate(48_000, frame_ms=20) == 960
+
+
+def test_rounds_to_the_nearest_sample_when_it_does_not_divide_evenly():
+    # 11025 * 20 / 1000 = 220.5 -- not a whole number of samples.
+    result = frame_samples_for_rate(11_025, frame_ms=20)
+    assert result in (220, 221)  # nearest integer either way of the tie
+    assert isinstance(result, int)
+
+
+def test_never_returns_zero_even_for_a_tiny_rate():
+    assert frame_samples_for_rate(10, frame_ms=20) >= 1
+
+
+def test_defaults_frame_ms_to_the_configured_frame_duration():
+    from stfu.config import FRAME_MS
+
+    assert frame_samples_for_rate(16_000) == frame_samples_for_rate(
+        16_000, frame_ms=FRAME_MS
+    )
