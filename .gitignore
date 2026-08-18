@@ -5,7 +5,10 @@ __pycache__/
 venv/
 build/
 dist/
+# PyInstaller writes throwaway specs next to its output; ours is checked in
+# and is what build.ps1 runs, so it must not be swept up by the wildcard.
 *.spec
+!stfu.spec
 .pytest_cache/
 .coverage
 htmlcov/

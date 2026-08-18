@@ -100,9 +100,11 @@ Some sound effects are bundled to get you started — see [the licence](LICENSE)
 
 Right-click the tray icon:
 
-**Report** · **Open sounds folder** · **Settings** 🔒 · **Recalibrate** 🔒 · **Pause 15 min** 🔒 · **Exit** 🔒
+**Report** · **Live meter** · **Open sounds folder** · **Settings** 🔒 · **Recalibrate** 🔒 · **Pause 15 min** 🔒 · **Exit** 🔒
 
-🔒 items ask for the PIN. The icon is green when listening, amber when paused, grey when the microphone is missing.
+🔒 items ask for the PIN — type it and the dialog closes as soon as it is right, no Enter needed.
+
+**Live meter** is the one to open when you are wondering whether it is listening at all. It shows the current level, the threshold in force, and **the seconds left on the cooldown** — because a working cooldown and a dead microphone otherwise look exactly the same from the outside. The icon is green when listening, amber when paused, grey when the microphone is missing.
 
 Settings exposes **every** changeable setting — threshold mode and thresholds, detection window lengths, cooldown, session-reset behaviour, the adaptive-mode parameters, overlay clicks, message duration, sound volume and clip length, and autostart.
 
