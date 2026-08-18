@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  # SignPath's action needs this to prove the artifact came from this workflow
+  # run rather than from someone's laptop. Harmless until signing is enabled.
+  id-token: write
+
+jobs:
+  build:
+    name: Build stfu.exe
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create the virtualenv
+        # build.ps1 expects .venv\Scripts\pyinstaller.exe, the same layout used
+        # locally. Matching it here means CI and a developer machine run the
+        # identical build path rather than two that drift apart.
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install --upgrade pip
+          .venv\Scripts\python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        # A tagged build that does not pass its own tests should never ship.
+        run: .venv\Scripts\python -m pytest -q
+
+      - name: Build
+        run: powershell -File build.ps1
+
+      - name: Confirm the assets made it into the exe
+        # PyInstaller silently produces a working exe with missing data files,
+        # and the failure only shows up as a silent app at runtime.
+        run: |
+          .venv\Scripts\pyi-archive_viewer --list dist\stfu.exe > archive.txt
+          $found = (Select-String -Path archive.txt -Pattern 'stfu.assets.sounds' -SimpleMatch).Count
+          Write-Host "bundled sound files found: $found"
+          if ($found -lt 1) { throw "assets missing from the built exe" }
+        shell: pwsh
+
+      - name: Upload the unsigned build
+        uses: actions/upload-artifact@v4
+        with:
+          name: stfu-unsigned
+          path: dist/stfu.exe
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------------
+      # Code signing, once SignPath Foundation has approved the project.
+      #
+      # SignPath signs artifacts produced by this workflow, not files uploaded
+      # from a laptop -- that is the point of it, and why `id-token: write` is
+      # requested above. Enable by:
+      #
+      #   1. Applying at https://signpath.org/apply.html
+      #   2. Adding SIGNPATH_API_TOKEN to the repository secrets
+      #   3. Filling in the organization/project/policy ids below
+      #   4. Uncommenting this step and swapping the release step's file path
+      #      to the signed artifact
+      #
+      # - name: Sign
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: "<from SignPath>"
+      #     project-slug: "stfu-public"
+      #     signing-policy-slug: "release-signing"
+      #     github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      #     wait-for-completion: true
+      #     output-artifact-directory: dist-signed
+      # ---------------------------------------------------------------------
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/stfu.exe
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            Download `stfu.exe` and run it. Setup takes about a minute.
+
+            **This binary is not code-signed.** Windows SmartScreen will warn
+            you: click *More info* then *Run anyway*. If you would rather not,
+            build it yourself — see the README, it is one command.
+
+            To clear the warning on a file you have already downloaded:
+
+            ```powershell
+            Unblock-File .\stfu.exe
+            ```
+
+            ## What it does
+
+            Listens to a microphone and interrupts you when you yell. It
+            measures your own voice during setup rather than guessing a
+            threshold. No audio is recorded, stored, or transmitted.

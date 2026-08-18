@@ -1,5 +1,7 @@
 # S.TFU
 
+[![CI](https://github.com/omricn/stfu-public/actions/workflows/ci.yml/badge.svg)](https://github.com/omricn/stfu-public/actions/workflows/ci.yml)
+
 A Windows tray app that listens to a microphone and interrupts you when you yell.
 
 Built for a specific problem: someone gaming with headphones on, quiet for an hour, then suddenly shouting loud enough to wake the house. Detection is tuned for **short spikes**, not sustained volume — the thing that wakes people is the sudden one, not the steady one.
@@ -29,7 +31,15 @@ Exclusive-fullscreen games won't reliably let another window draw on top of them
 
 **Option A — download the exe.** Grab `stfu.exe` from [Releases](../../releases), copy it anywhere, run it.
 
-Windows SmartScreen will warn you: the binary is **not code-signed**. Click *More info* → *Run anyway*. If that bothers you — reasonably — use Option B.
+Windows SmartScreen will warn you: the binary is **not code-signed**. Click *More info* → *Run anyway*.
+
+The warning comes from the "mark of the web" tag Windows attaches to downloads, not from anything in the file. You can clear it:
+
+```powershell
+Unblock-File .\stfu.exe
+```
+
+A copy handed over on a USB stick or a network share never gets tagged in the first place. If none of that satisfies you — reasonably — use Option B and build it yourself.
 
 **Option B — build it yourself.**
 
@@ -164,7 +174,7 @@ There is also a headless CLI for tuning without the GUI:
 
 ## Known limitations
 
-- **Unsigned binary** — SmartScreen will warn. Build from source if that matters to you.
+- **Unsigned binary** — SmartScreen will warn. `Unblock-File` clears it, or build from source.
 - **Exclusive-fullscreen games** — handled by minimising first, but behaviour varies by title. Worth testing with yours.
 - **DPI scaling** — the overlay is laid out relative to screen size; heavily scaled displays are less tested.
 - **Windows only** — `winreg`, Win32 minimise/show-desktop, and WASAPI capture are all Windows-specific.
