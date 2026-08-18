@@ -8,13 +8,11 @@ duplicate that logic, it just writes what was typed and reloads.
 from __future__ import annotations
 
 import logging
-import threading
 import tkinter as tk
 from tkinter import ttk
 
 from stfu import autostart
-from stfu.audio import MicSource
-from stfu.calibration import CalibrationSamples, collect_sample, compute_thresholds
+from stfu.calibrationui import CalibrationDialog
 from stfu.config import (
     SESSION_RESET_MODES,
     THRESHOLD_MODES,
@@ -27,9 +25,6 @@ from stfu.sounds import RUNG_FIRST, ClipLibrary, MiniaudioPlayer, SoundBite
 
 log = logging.getLogger(__name__)
 
-SAMPLE_SECONDS = {"quiet": 10, "speech": 10, "yell": 5}
-FRAMES_PER_SECOND = 50
-
 
 class SettingsWindow:
     """One form, one Save. Closing any other way discards changes."""
@@ -38,8 +33,7 @@ class SettingsWindow:
         self.config = config
         self.root: tk.Tk | None = None
         self._status: tk.Label | None = None
-        self._render_token = 0
-        self._cancel = threading.Event()
+        self._calibration: CalibrationDialog | None = None
 
         # Text-entry fields, keyed by Config attribute name.
         self._fields: dict[str, tk.StringVar] = {}
@@ -228,108 +222,26 @@ class SettingsWindow:
         )
 
     def _recalibrate(self) -> None:
-        """Re-run the three-sample calibration in a small dialog.
+        """Open the shared recalibration dialog (see calibrationui.py) as a
+        child of this window.
 
         Only updates the in-memory form fields -- like everything else here,
-        it takes effect only if the operator then presses Save.
+        it takes effect only if the operator then presses Save. A press
+        while a previous run is still going cancels that one first, so it
+        cannot keep the microphone open underneath the new dialog.
         """
-        self._cancel.set()
-        self._render_token += 1
-        token = self._render_token
-        self._cancel.clear()
+        if self._calibration is not None:
+            self._calibration.cancel()
 
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Recalibrate")
-        dialog.geometry("420x220")
+        def apply_result(result) -> None:
+            self._fields["spike_threshold_dbfs"].set(str(result.spike_threshold_dbfs))
+            self._fields["sustain_threshold_dbfs"].set(
+                str(result.sustain_threshold_dbfs)
+            )
 
-        instructions = tk.Label(
-            dialog,
-            text="Three short recordings. Press Start, then follow the prompt.",
-            justify="left",
-            anchor="w",
-            wraplength=380,
+        self._calibration = CalibrationDialog(
+            self.config,
+            on_result=apply_result,
+            success_suffix=" Press Save on the main window to keep it.",
         )
-        instructions.pack(fill="x", padx=16, pady=(16, 8))
-
-        progress = ttk.Progressbar(dialog, maximum=1.0)
-        progress.pack(fill="x", padx=16, pady=8)
-
-        result_label = tk.Label(dialog, text="", justify="left", anchor="w")
-        result_label.pack(fill="x", padx=16, pady=8)
-
-        def ui(fn) -> None:
-            root = self.root
-            if root is None:
-                return
-
-            def apply() -> None:
-                if self._render_token == token:
-                    fn()
-
-            root.after(0, apply)
-
-        def stop_on_close() -> None:
-            self._cancel.set()
-            dialog.destroy()
-
-        dialog.protocol("WM_DELETE_WINDOW", stop_on_close)
-
-        def run_calibration() -> None:
-            source = MicSource(self.config.device_name, self.config.device_hostapi)
-            if not source.open():
-                ui(lambda: result_label.configure(text="Could not open the microphone."))
-                return
-
-            samples = CalibrationSamples()
-            try:
-                for name, prompt in (
-                    ("quiet", "Be quiet..."),
-                    ("speech", "Now talk normally..."),
-                    ("yell", "Now yell once!"),
-                ):
-                    if self._cancel.is_set():
-                        return
-                    ui(lambda p=prompt: instructions.configure(text=p))
-                    frames = SAMPLE_SECONDS[name] * FRAMES_PER_SECOND
-                    levels = collect_sample(
-                        source,
-                        frames,
-                        on_progress=lambda f: ui(
-                            lambda f=f: progress.configure(value=f)
-                        ),
-                        is_cancelled=self._cancel.is_set,
-                    )
-                    if self._cancel.is_set():
-                        return
-                    setattr(samples, name, levels)
-            finally:
-                source.close()
-
-            result = compute_thresholds(samples)
-
-            def apply_result() -> None:
-                self._fields["spike_threshold_dbfs"].set(
-                    str(result.spike_threshold_dbfs)
-                )
-                self._fields["sustain_threshold_dbfs"].set(
-                    str(result.sustain_threshold_dbfs)
-                )
-                message = (
-                    f"Done. Threshold set to {result.spike_threshold_dbfs} dBFS. "
-                    "Press Save on the main window to keep it."
-                    if result.usable
-                    else "That yell was not louder than your speaking voice. "
-                    "A safe threshold was used -- press Start to try again."
-                )
-                result_label.configure(text=message)
-                instructions.configure(text="Press Start to redo, or close this window.")
-
-            ui(apply_result)
-
-        tk.Button(
-            dialog,
-            text="Start",
-            command=lambda: threading.Thread(
-                target=run_calibration, daemon=True
-            ).start(),
-        ).pack(pady=8)
+        self._calibration.show(master=self.root)

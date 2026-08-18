@@ -41,6 +41,7 @@ from stfu import autostart
 from stfu.actions import ActionRegistry
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource
+from stfu.calibrationui import CalibrationDialog
 from stfu.config import Config, data_dir, load_config, save_config
 from stfu.engine import Engine
 from stfu.firstrun import needs_setup
@@ -319,10 +320,20 @@ class App:
         SettingsWindow(self.config).show()
 
     def _open_recalibrate(self) -> None:
-        # Recalibration is a button inside the settings window, not a
-        # separate flow of its own -- the tray shortcut opens that window
-        # rather than duplicating the calibration dialog a second time.
-        SettingsWindow(self.config).show()
+        # The tray shortcut opens the calibration flow directly (F3) rather
+        # than detouring through the whole settings window. There is no form
+        # here to hold the result pending a Save, so a successful run is
+        # written straight to disk and to the live config the engine already
+        # holds a reference to -- the next frame's threshold check picks it
+        # up immediately.
+        def apply_result(result) -> None:
+            self.config.spike_threshold_dbfs = result.spike_threshold_dbfs
+            self.config.sustain_threshold_dbfs = result.sustain_threshold_dbfs
+            save_config(self.config)
+
+        CalibrationDialog(
+            self.config, on_result=apply_result, success_suffix=" Saved."
+        ).show()
 
     def _pause(self) -> None:
         self.engine.pause()
