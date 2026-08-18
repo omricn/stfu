@@ -1,0 +1,27 @@
+[project]
+name = "stfu"
+version = "0.1.0"
+description = "Noise monitor and nudge app for Windows"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "sounddevice>=0.4.6",
+    "miniaudio>=1.59",
+    "matplotlib>=3.8",
+    "pystray>=0.19",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pyinstaller>=6.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["stfu*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

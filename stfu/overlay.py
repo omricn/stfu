@@ -1,0 +1,255 @@
+"""The 4-click overlay and the desktop message.
+
+ClickTracker holds every decision -- how many clicks remain and where the close
+button jumps next -- so the deliberately annoying part of the app is unit-tested
+without opening a window. The Tk classes only render.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import random
+import tkinter as tk
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+
+class ClickTracker:
+    """Counts clicks toward dismissal and places the close button.
+
+    The button must move far enough each time to be visibly somewhere new,
+    otherwise four clicks read as a broken button rather than a deliberate
+    obstacle.
+    """
+
+    def __init__(self, required: int, rng: random.Random | None = None) -> None:
+        self.required = max(1, required)
+        self.clicks = 0
+        self._rng = rng or random.Random()
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.required - self.clicks)
+
+    @property
+    def done(self) -> bool:
+        return self.clicks >= self.required
+
+    def click(self) -> bool:
+        """Register a click. True means the overlay should now close."""
+        self.clicks += 1
+        return self.done
+
+    def next_position(
+        self,
+        bounds: tuple[int, int],
+        size: tuple[int, int],
+        current: tuple[int, int] | None = None,
+        min_move: float = 200.0,
+        attempts: int = 60,
+    ) -> tuple[int, int]:
+        """A new top-left position for the button, inside `bounds`."""
+        max_x = max(0, bounds[0] - size[0])
+        max_y = max(0, bounds[1] - size[1])
+
+        for _ in range(attempts):
+            candidate = (self._rng.randint(0, max_x), self._rng.randint(0, max_y))
+            if current is None:
+                return candidate
+            if (
+                math.hypot(candidate[0] - current[0], candidate[1] - current[1])
+                >= min_move
+            ):
+                return candidate
+
+        if current is None:
+            return (max_x, max_y)
+
+        # No random position satisfied min_move -- the window is smaller than
+        # the required jump. Take the farthest corner: still a visible move, and
+        # always inside the bounds.
+        corners = [(0, 0), (max_x, 0), (0, max_y), (max_x, max_y)]
+        return max(
+            corners, key=lambda c: math.hypot(c[0] - current[0], c[1] - current[1])
+        )
+
+
+OVERLAY_FRACTION = 0.9
+OVERLAY_BG = "#111111"
+OVERLAY_FG = "#f5f5f5"
+BUTTON_SIZE = (140, 48)
+IMAGE_FRACTION = (0.5, 0.40)  # of screen width, height
+
+
+def _fullscreen_root(fraction: float | None) -> tk.Tk:
+    """A borderless, always-on-top, centred window.
+
+    `fraction` of None means true fullscreen; a fraction sizes it relative to
+    the screen. Both are override-redirect, so there is no title bar to close.
+    """
+    root = tk.Tk()
+    root.configure(bg=OVERLAY_BG)
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
+
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+    if fraction is None:
+        width, height, x, y = screen_w, screen_h, 0, 0
+    else:
+        width = int(screen_w * fraction)
+        height = int(screen_h * fraction)
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+    root.geometry(f"{width}x{height}+{x}+{y}")
+
+    root.lift()
+    root.focus_force()
+    return root
+
+
+def _load_picture(path: Path | None, screen: tuple[int, int]):
+    """Load and scale a picture to sit under the text, or None.
+
+    Transparency is composited onto the window background rather than converted
+    away: most of the shipped pictures are RGBA, and a plain convert("RGB")
+    turns transparent pixels black, which reads as an ugly rectangle around the
+    subject.
+
+    Returns a PhotoImage. **The caller must keep a reference to it** -- Tk does
+    not, and a garbage-collected PhotoImage renders as an empty gap.
+    """
+    if path is None:
+        return None
+    try:
+        from PIL import Image, ImageTk
+
+        picture = Image.open(path)
+        picture.thumbnail(
+            (int(screen[0] * IMAGE_FRACTION[0]), int(screen[1] * IMAGE_FRACTION[1])),
+            Image.LANCZOS,
+        )
+        if picture.mode in ("RGBA", "LA", "P"):
+            picture = picture.convert("RGBA")
+            backdrop = Image.new("RGB", picture.size, OVERLAY_BG)
+            backdrop.paste(picture, mask=picture.split()[-1])
+            picture = backdrop
+        else:
+            picture = picture.convert("RGB")
+        return ImageTk.PhotoImage(picture)
+    except Exception:
+        log.exception("could not load picture %s", path)
+        return None
+
+
+class FourClickOverlay:
+    """Near-fullscreen overlay whose close button jumps after every click."""
+
+    def __init__(
+        self, tracker: ClickTracker, message: str, picture: Path | None = None
+    ) -> None:
+        self.tracker = tracker
+        self.message = message
+        self.picture = picture
+
+    def show(self) -> None:
+        """Display the overlay and block until it is dismissed."""
+        root = _fullscreen_root(OVERLAY_FRACTION)
+
+        # Esc and Alt+F4 are suppressed: with them available, the four clicks
+        # are theatre.
+        root.protocol("WM_DELETE_WINDOW", lambda: None)
+        root.bind("<Escape>", lambda _event: "break")
+        root.bind("<Alt-F4>", lambda _event: "break")
+
+        tk.Label(
+            root,
+            text=self.message,
+            bg=OVERLAY_BG,
+            fg=OVERLAY_FG,
+            font=("Segoe UI", 48, "bold"),
+            wraplength=int(root.winfo_screenwidth() * 0.7),
+        ).place(relx=0.5, rely=0.14, anchor="center")
+
+        photo = _load_picture(
+            self.picture, (root.winfo_screenwidth(), root.winfo_screenheight())
+        )
+        if photo is not None:
+            picture_label = tk.Label(root, image=photo, bg=OVERLAY_BG, borderwidth=0)
+            # Tk keeps no reference of its own; without this the image is
+            # collected and the label renders as an empty gap.
+            picture_label.image = photo
+            picture_label.place(relx=0.5, rely=0.46, anchor="center")
+
+        counter = tk.Label(
+            root,
+            text=self._counter_text(),
+            bg=OVERLAY_BG,
+            fg="#9a9a9a",
+            font=("Segoe UI", 18),
+        )
+        counter.place(relx=0.5, rely=0.80, anchor="center")
+
+        button = tk.Button(root, text="Close", font=("Segoe UI", 14), width=12, height=2)
+        position = {"at": None}
+
+        def move() -> None:
+            bounds = (root.winfo_width(), root.winfo_height())
+            position["at"] = self.tracker.next_position(
+                bounds, BUTTON_SIZE, position["at"]
+            )
+            button.place(x=position["at"][0], y=position["at"][1])
+
+        def on_click() -> None:
+            if self.tracker.click():
+                root.destroy()
+                return
+            counter.configure(text=self._counter_text())
+            move()
+
+        button.configure(command=on_click)
+        root.update_idletasks()
+        move()
+        root.mainloop()
+
+    def _counter_text(self) -> str:
+        remaining = self.tracker.remaining
+        return f"{remaining} more click{'s' if remaining != 1 else ''} to close"
+
+
+class DesktopMessage:
+    """Fullscreen message that dismisses itself after a set time."""
+
+    def __init__(
+        self, message: str, seconds: int, picture: Path | None = None
+    ) -> None:
+        self.message = message
+        self.seconds = seconds
+        self.picture = picture
+
+    def show(self) -> None:
+        """Display the message and block until it auto-dismisses."""
+        root = _fullscreen_root(None)
+        root.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        tk.Label(
+            root,
+            text=self.message,
+            bg=OVERLAY_BG,
+            fg=OVERLAY_FG,
+            font=("Segoe UI", 56, "bold"),
+            wraplength=int(root.winfo_screenwidth() * 0.7),
+        ).place(relx=0.5, rely=0.26, anchor="center")
+
+        photo = _load_picture(
+            self.picture, (root.winfo_screenwidth(), root.winfo_screenheight())
+        )
+        if photo is not None:
+            picture_label = tk.Label(root, image=photo, bg=OVERLAY_BG, borderwidth=0)
+            picture_label.image = photo
+            picture_label.place(relx=0.5, rely=0.62, anchor="center")
+
+        root.after(int(self.seconds * 1000), root.destroy)
+        root.mainloop()
