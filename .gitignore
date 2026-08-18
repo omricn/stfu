@@ -13,3 +13,6 @@ dist/
 .coverage
 htmlcov/
 *.log
+
+# Working material for the brand assets, not shipped
+/stfu gifs/

@@ -20,6 +20,13 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 SEEDED_FOLDERS = ("sounds/first", "sounds/repeat", "images")
+# Deliberately not listed above: "brand" (stfu/assets/brand/, the splash's
+# logo.gif and the drawn mark's source data). Those are app resources the
+# app reads from its own install, like the code in stfu/*.py itself -- not
+# user content the operator is meant to replace, add to, or find copied into
+# %LOCALAPPDATA%\STFU\brand alongside their sounds and pictures. See
+# splashui.py, which reads them straight from assets_dir(), never from the
+# user's data folder.
 
 
 def assets_dir() -> Path:

@@ -73,6 +73,7 @@ from stfu import pinprompt
 from stfu.reportui import ReportWindow
 from stfu.settingsui import SettingsWindow
 from stfu.sounds import RUNG_FIRST, RUNG_REPEAT, ClipLibrary, MiniaudioPlayer, SoundBite
+from stfu.splashui import SplashWindow
 from stfu.tray import STATE_LISTENING, STATE_NO_MIC, STATE_PAUSED, Tray
 from stfu.uibridge import UiBridge
 from stfu.winapi import RealWinApi
@@ -257,6 +258,41 @@ def create_hidden_root() -> tk.Tk:
     return root
 
 
+def _show_splash_before_wizard() -> None:
+    """Show the launch splash ahead of first-run setup, on a throwaway
+    hidden root built and fully torn down before anything else runs.
+
+    On every *other* launch the splash is layered on top of the real app,
+    already running (see `App.run()`) -- there is nothing to layer it on top
+    of here, since setup has not produced a Config the engine could run
+    with yet. So this blocks instead, via `wait_window`, until the splash
+    closes itself, and then destroys this root completely before
+    `FirstRunWizard` constructs its own separate `Tk()` -- this module's
+    invariant is "at most one Tk() alive at a time", not "app.py's hidden
+    root always outlives everything else" (see the module docstring), and a
+    root built and destroyed entirely within this one function, before the
+    wizard's root exists, never overlaps with it.
+
+    Wrapped so any failure here -- a missing/corrupt gif, a Tk quirk -- is
+    logged and skipped rather than delaying setup by so much as a frame;
+    the splash is decoration, first-run setup is the job.
+    """
+    try:
+        root = create_hidden_root()
+    except Exception:
+        log.exception("could not create a root for the launch splash; skipping it")
+        return
+
+    try:
+        top = SplashWindow(root).show()
+        if top is not None:
+            root.wait_window(top)
+    except Exception:
+        log.exception("launch splash failed before setup; skipping it")
+    finally:
+        root.destroy()
+
+
 class App:
     """Wires the engine to real hardware and windows, and owns the lifecycle
     of the capture and tray threads plus the hidden Tk root this object's
@@ -307,6 +343,21 @@ class App:
         self._tray_thread.start()
 
         self.root = create_hidden_root()
+
+        # Shown *after* the two threads above are already running, as an
+        # overlay on top of an app that does not need it to finish anything
+        # -- see splashui.py's module docstring. show() is the same
+        # non-blocking convention every other window here uses: it returns
+        # once the Toplevel exists, and animates itself out via its own
+        # after() ticks once mainloop() below starts pumping them. Wrapped
+        # here too, on top of show()'s own internal guard, because a failure
+        # this close to the real event loop starting is exactly the kind
+        # that must never be allowed to stop it from starting.
+        try:
+            SplashWindow(self.root).show()
+        except Exception:
+            log.exception("could not show the launch splash; continuing without it")
+
         self.root.after(PUMP_INTERVAL_MS, self._pump)
         self.root.mainloop()
 
@@ -511,6 +562,10 @@ def main() -> int:
     try:
         config = load_config()
         if needs_setup(config):
+            # Shown before the wizard's own Tk() exists at all -- see
+            # _show_splash_before_wizard's docstring for why this is the one
+            # case the splash blocks rather than just layering on top.
+            _show_splash_before_wizard()
             result = FirstRunWizard(config).run()
             if result is None:
                 log.info("first-run setup was cancelled; exiting without saving")
