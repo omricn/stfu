@@ -103,21 +103,48 @@ class DeviceWatch:
 
 
 class _BridgedWindow:
-    """Adapts a zero-arg window factory so its show() runs on the Tk thread
-    and blocks the caller until the window is dismissed.
+    """Adapts a zero-arg window factory so its show() runs on the Tk thread,
+    without blocking the caller.
 
-    actions.fire() runs on the capture thread and must block until the window
-    it opened closes -- the engine uses the return value to decide how long to
-    suppress detection. bridge.submit() is exactly that: it enqueues the
-    work, blocks, and returns once the main thread has run it.
+    It used to block, via bridge.submit(), on the theory that actions.fire()
+    should not return until the window it opened had closed. That was wrong,
+    and it deadlocked the app in the field: fire() runs on the *capture*
+    thread, so blocking it stops audio being read at all. The overlay waits
+    for four clicks and the fullscreen message for ten seconds -- during which
+    nothing was detected -- and if either window failed to close for any
+    reason, detection was dead permanently. Real logs showed exactly one
+    trigger per session, then silence.
+
+    Nothing actually needed the block. The engine's suppression window comes
+    from the sound clip's duration, which ActionRegistry already obtains
+    before the window is opened.
+
+    A window still showing is not reopened: two overlays stacked on each other
+    would be worse than one, and the cooldown means it can only happen when
+    something has already gone wrong.
     """
 
     def __init__(self, bridge: UiBridge, factory: Callable[[], object]) -> None:
         self._bridge = bridge
         self._factory = factory
+        self._open = threading.Event()
 
     def show(self) -> None:
-        self._bridge.submit(lambda: self._factory().show())
+        if self._open.is_set():
+            log.warning("a window is already open; not opening another")
+            return
+        self._open.set()
+
+        def run() -> None:
+            try:
+                self._factory().show()
+            finally:
+                # Cleared on the Tk thread once the window's own mainloop has
+                # returned, so the flag can never latch on and suppress every
+                # future popup.
+                self._open.clear()
+
+        self._bridge.submit_async(run)
 
 
 def _ensure_sound_dirs(sounds_root) -> None:
@@ -140,24 +167,29 @@ def _build_actions(config: Config, bridge: UiBridge) -> ActionRegistry:
 
     pictures = ImageLibrary(data_dir() / "images")
 
+    overlay_window = _BridgedWindow(
+        bridge,
+        lambda: FourClickOverlay(
+            ClickTracker(config.overlay_clicks_required),
+            "Volume check",
+            pictures.pick(),
+        ),
+    )
+    message_window = _BridgedWindow(
+        bridge,
+        lambda: DesktopMessage(
+            "Too loud", config.desktop_message_seconds, pictures.pick()
+        ),
+    )
+
     return ActionRegistry(
         config=config,
         winapi=RealWinApi(),
         sound=sound,
-        overlay_factory=lambda: _BridgedWindow(
-            bridge,
-            lambda: FourClickOverlay(
-                ClickTracker(config.overlay_clicks_required),
-                "Volume check",
-                pictures.pick(),
-            ),
-        ),
-        message_factory=lambda: _BridgedWindow(
-            bridge,
-            lambda: DesktopMessage(
-                "Too loud", config.desktop_message_seconds, pictures.pick()
-            ),
-        ),
+        # Built once each, not per trigger: the "already open" flag lives on
+        # these objects and would be useless if a fresh one appeared each time.
+        overlay_factory=lambda: overlay_window,
+        message_factory=lambda: message_window,
     )
 
 
@@ -386,7 +418,33 @@ class App:
             self.root.destroy()
 
 
+def _configure_logging() -> None:
+    r"""Send this app's own log to %LOCALAPPDATA%\STFU\app.log.
+
+    It was never configured, so every exception the UI bridge and the action
+    dispatcher carefully caught and logged went nowhere at all. That is how a
+    deadlocked capture thread and a dialog that failed to build both presented
+    as "nothing happens" with no way to find out why.
+    """
+    from logging.handlers import RotatingFileHandler
+
+    root = logging.getLogger()
+    if any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        return
+
+    handler = RotatingFileHandler(
+        data_dir() / "app.log", maxBytes=512_000, backupCount=2, encoding="utf-8"
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+    )
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
 def main() -> int:
+    _configure_logging()
+    log.info("S.TFU starting")
     instance = SingleInstance()
     if not instance.acquire():
         log.info("another instance is already running; exiting")

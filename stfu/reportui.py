@@ -25,6 +25,14 @@ class ReportWindow:
         root = tk.Tk()
         appicon.set_window_icon(root)
         root.title("S.TFU report")
+
+        # Come to the front once, without staying pinned there. A window that
+        # silently opened behind a still-showing overlay looked exactly like a
+        # window that never opened at all.
+        root.lift()
+        root.attributes("-topmost", True)
+        root.after(200, lambda: root.attributes("-topmost", False))
+
         root.geometry("980x680")
 
         top = tk.Frame(root)

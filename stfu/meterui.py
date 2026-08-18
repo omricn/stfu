@@ -60,6 +60,14 @@ class MeterWindow:
         self.root = tk.Tk()
         appicon.set_window_icon(self.root)
         self.root.title("S.TFU - live meter")
+
+        # Come to the front once, without staying pinned there. A window that
+        # silently opened behind a still-showing overlay looked exactly like a
+        # window that never opened at all.
+        self.root.lift()
+        self.root.attributes("-topmost", True)
+        self.root.after(200, lambda: self.root.attributes("-topmost", False))
+
         self.root.resizable(False, False)
         self.root.attributes("-topmost", True)
         self.root.protocol("WM_DELETE_WINDOW", self._close)

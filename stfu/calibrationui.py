@@ -73,6 +73,14 @@ class CalibrationDialog:
         owns_loop = master is None
         dialog = tk.Tk() if owns_loop else tk.Toplevel(master)
         dialog.title("Recalibrate")
+
+        # Come to the front once, without staying pinned there. A window that
+        # silently opened behind a still-showing overlay looked exactly like a
+        # window that never opened at all.
+        dialog.lift()
+        dialog.attributes("-topmost", True)
+        dialog.after(200, lambda: dialog.attributes("-topmost", False))
+
         dialog.geometry("420x220")
         appicon.set_window_icon(dialog)
 
