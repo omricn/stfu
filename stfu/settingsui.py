@@ -49,11 +49,32 @@ class SettingsWindow:
     def show(self) -> None:
         self.root = tk.Tk()
         self.root.title("S.TFU settings")
-        self.root.geometry("480x560")
+        self.root.geometry("520x620")
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
-        form = tk.Frame(self.root)
-        form.pack(fill="both", expand=True, padx=16, pady=12)
+        # The form scrolls. It already holds twenty rows and every new setting
+        # adds another; a fixed frame would quietly push the Save button off a
+        # smaller screen.
+        canvas = tk.Canvas(self.root, highlightthickness=0)
+        scrollbar = tk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        form = tk.Frame(canvas)
+
+        form.bind(
+            "<Configure>",
+            lambda _e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        window = canvas.create_window((0, 0), window=form, anchor="nw")
+        canvas.bind(
+            "<Configure>", lambda e: canvas.itemconfigure(window, width=e.width)
+        )
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=(16, 0), pady=12)
+        scrollbar.pack(side="right", fill="y", pady=12)
+        canvas.bind_all(
+            "<MouseWheel>",
+            lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"),
+        )
 
         self._add_choice(form, "threshold_mode", "Threshold mode", THRESHOLD_MODES)
         self._add_entry(form, "spike_threshold_dbfs", "Spike threshold (dBFS)")
@@ -63,10 +84,22 @@ class SettingsWindow:
         self._add_choice(
             form, "session_reset_mode", "Session reset", SESSION_RESET_MODES
         )
+        self._add_entry(form, "rolling_reset_minutes", "Rolling reset (minutes)")
+        self._add_entry(form, "nightly_reset_hour", "Nightly reset hour (0-23)")
+        # Turning both of these off leaves detection and logging running with
+        # no interruption at all -- worth a night before letting it react.
+        self._add_bool(form, "popups_enabled", "Show popups")
+        self._add_bool(form, "sound_enabled", "Play sounds")
         self._add_entry(form, "overlay_clicks_required", "Overlay clicks required")
         self._add_entry(form, "desktop_message_seconds", "Desktop message (seconds)")
         self._add_entry(form, "sound_gain", "Sound gain")
         self._add_entry(form, "max_clip_seconds", "Max clip length (seconds)")
+        self._add_entry(form, "spike_window_ms", "Spike window (ms)")
+        self._add_entry(form, "sustain_window_ms", "Sustain window (ms)")
+        self._add_entry(form, "adaptive_delta_db", "Adaptive: dB above baseline")
+        self._add_entry(form, "adaptive_min_threshold_dbfs", "Adaptive: floor (dBFS)")
+        self._add_entry(form, "adaptive_max_threshold_dbfs", "Adaptive: ceiling (dBFS)")
+        self._add_entry(form, "adaptive_baseline_minutes", "Adaptive: baseline (minutes)")
         self._add_autostart(form)
 
         self._status = tk.Label(self.root, text="", anchor="w", fg="#555555")

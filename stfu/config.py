@@ -48,6 +48,8 @@ class Config:
     # Actions (consumed by Plan 2, stored here so settings stay in one place)
     overlay_clicks_required: int = 4
     desktop_message_seconds: int = 10
+    sound_enabled: bool = True
+    popups_enabled: bool = True
     sound_gain: float = 1.0
     max_clip_seconds: int = 15
 

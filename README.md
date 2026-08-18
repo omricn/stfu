@@ -104,7 +104,14 @@ Right-click the tray icon:
 
 🔒 items ask for the PIN. The icon is green when listening, amber when paused, grey when the microphone is missing.
 
-Settings exposes the threshold mode, thresholds, cooldown, session-reset behaviour, how many clicks the overlay takes, message duration, sound volume, and autostart.
+Settings exposes **every** changeable setting — threshold mode and thresholds, detection window lengths, cooldown, session-reset behaviour, the adaptive-mode parameters, overlay clicks, message duration, sound volume and clip length, and autostart.
+
+Two of them are worth knowing about:
+
+- **Show popups** — off means it detects and logs but never interrupts
+- **Play sounds** — off means silent reactions
+
+Turn both off and you get a **log-only mode**. Worth running for a night after calibrating: you can check the threshold is catching the right things from the report, before it starts interrupting anyone.
 
 ### Threshold modes
 
@@ -178,6 +185,14 @@ There is also a headless CLI for tuning without the GUI:
 - **Exclusive-fullscreen games** — handled by minimising first, but behaviour varies by title. Worth testing with yours.
 - **DPI scaling** — the overlay is laid out relative to screen size; heavily scaled displays are less tested.
 - **Windows only** — `winreg`, Win32 minimise/show-desktop, and WASAPI capture are all Windows-specific.
+
+## Uninstalling
+
+Run `uninstall.bat` (shipped alongside the exe, and readable — it's a plain batch file, not a compiled installer). It stops the app, removes the start-with-Windows entry, and deletes `%LOCALAPPDATA%\STFU`, after copying your event log to the Desktop first.
+
+Then delete `stfu.exe` yourself. That's everything — the app writes nothing anywhere else.
+
+---
 
 ## Licence
 

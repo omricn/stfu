@@ -23,6 +23,10 @@ ACTION_USB_LIGHT = "usb_light"
 class ActionRegistry:
     """Maps an action name to what actually happens on screen.
 
+    Sound and popups are independently switchable. With both off the app
+    still detects and logs but never interrupts -- useful for checking a
+    freshly calibrated threshold for a night before it starts reacting.
+
     Both visible actions leave the game first. That is the spec's accepted
     trade-off: an exclusive-fullscreen DirectX game will not reliably let
     another window draw on top, so the only way to guarantee the message is seen
@@ -60,18 +64,34 @@ class ActionRegistry:
             return None
         return handler(event)
 
+    def _play(self, rung: str) -> float | None:
+        """Play a clip unless sound is muted.
+
+        Returning None when muted matters: the engine reads this to decide how
+        long to suppress detection, and with nothing playing there is nothing
+        to suppress.
+        """
+        if not self.config.sound_enabled:
+            return None
+        return self.sound.play(rung)
+
     def _overlay(self, event) -> float | None:
-        self.winapi.minimize_foreground()
-        # Sound first: the overlay blocks until dismissed, so a clip started
-        # after it would not play until the user had already closed the window.
-        seconds = self.sound.play(RUNG_FIRST)
-        self._overlay_factory().show()
+        # The two guards are separate so the minimise-sound-window ordering is
+        # preserved when popups are on: the game must be left before the window
+        # appears, and the sound must start before show() blocks.
+        if self.config.popups_enabled:
+            self.winapi.minimize_foreground()
+        seconds = self._play(RUNG_FIRST)
+        if self.config.popups_enabled:
+            self._overlay_factory().show()
         return seconds
 
     def _desktop_drop(self, event) -> float | None:
-        self.winapi.show_desktop()
-        seconds = self.sound.play(RUNG_REPEAT)
-        self._message_factory().show()
+        if self.config.popups_enabled:
+            self.winapi.show_desktop()
+        seconds = self._play(RUNG_REPEAT)
+        if self.config.popups_enabled:
+            self._message_factory().show()
         return seconds
 
     def _usb_light(self, event) -> float | None:

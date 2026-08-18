@@ -166,3 +166,76 @@ def test_the_desktop_action_drops_then_sounds_then_shows(tmp_path):
     )
     registry.fire(ACTION_DESKTOP_DROP, event())
     assert order == ["desktop", "sound", "message"]
+
+
+def registry_with(tmp_path, shown, **config_kwargs):
+    """A registry over a real clip library, with config overrides."""
+    library = ClipLibrary(tmp_path, rng=random.Random(0))
+    bite = SoundBite(library, FakePlayer(duration=2.0), gain=1.0, max_seconds=15)
+    winapi = FakeWinApi()
+    registry = ActionRegistry(
+        config=Config(**config_kwargs),
+        winapi=winapi,
+        sound=bite,
+        overlay_factory=lambda: FakeWindow(shown, "overlay"),
+        message_factory=lambda: FakeWindow(shown, "message"),
+    )
+    return registry, winapi, bite
+
+
+def test_sound_can_be_muted(tmp_path):
+    shown = []
+    make_clip(tmp_path, "first")
+    registry, winapi, bite = registry_with(tmp_path, shown, sound_enabled=False)
+    assert registry.fire(ACTION_OVERLAY, event()) is None
+    assert bite.player.played == []
+    assert shown == ["overlay"]
+    assert winapi.calls == ["minimize_foreground"]
+
+
+def test_popups_can_be_turned_off(tmp_path):
+    # Log-only mode: still detects and logs, but does not interrupt.
+    shown = []
+    make_clip(tmp_path, "first")
+    registry, winapi, bite = registry_with(tmp_path, shown, popups_enabled=False)
+    registry.fire(ACTION_OVERLAY, event())
+    assert shown == []
+    assert winapi.calls == []
+    assert bite.player.played != []  # the sound still plays
+
+
+def test_turning_popups_off_also_stops_the_desktop_drop(tmp_path):
+    shown = []
+    registry, winapi, _ = registry_with(tmp_path, shown, popups_enabled=False)
+    registry.fire(ACTION_DESKTOP_DROP, event())
+    assert shown == []
+    assert winapi.calls == []
+
+
+def test_both_off_is_a_silent_log_only_mode(tmp_path):
+    shown = []
+    make_clip(tmp_path, "first")
+    registry, winapi, bite = registry_with(
+        tmp_path, shown, sound_enabled=False, popups_enabled=False
+    )
+    assert registry.fire(ACTION_OVERLAY, event()) is None
+    assert shown == []
+    assert winapi.calls == []
+    assert bite.player.played == []
+
+
+def test_muting_sound_does_not_suppress_detection(tmp_path):
+    # The engine suppresses detection for the length of a clip. With no clip
+    # playing there is nothing to suppress, so it must return None.
+    make_clip(tmp_path, "first")
+    registry, _, _ = registry_with(tmp_path, [], sound_enabled=False)
+    assert registry.fire(ACTION_OVERLAY, event()) is None
+
+
+def test_everything_on_is_the_default(tmp_path):
+    shown = []
+    make_clip(tmp_path, "first")
+    registry, winapi, bite = registry_with(tmp_path, shown)
+    assert registry.fire(ACTION_OVERLAY, event()) == 2.0
+    assert shown == ["overlay"]
+    assert winapi.calls == ["minimize_foreground"]
