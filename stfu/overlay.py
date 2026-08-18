@@ -113,7 +113,7 @@ def _fullscreen_root(fraction: float | None) -> tk.Tk:
     return root
 
 
-def _load_picture(path: Path | None, screen: tuple[int, int]):
+def _load_picture(path: Path | None, root, screen: tuple[int, int]):
     """Load and scale a picture to sit under the text, or None.
 
     Transparency is composited onto the window background rather than converted
@@ -141,7 +141,9 @@ def _load_picture(path: Path | None, screen: tuple[int, int]):
             picture = backdrop
         else:
             picture = picture.convert("RGB")
-        return ImageTk.PhotoImage(picture)
+        # master= for the same reason as appicon: without it the image
+        # binds to the wrong interpreter and the label renders empty.
+        return ImageTk.PhotoImage(picture, master=root)
     except Exception:
         log.exception("could not load picture %s", path)
         return None
@@ -177,7 +179,7 @@ class FourClickOverlay:
         ).place(relx=0.5, rely=0.14, anchor="center")
 
         photo = _load_picture(
-            self.picture, (root.winfo_screenwidth(), root.winfo_screenheight())
+            self.picture, root, (root.winfo_screenwidth(), root.winfo_screenheight())
         )
         if photo is not None:
             picture_label = tk.Label(root, image=photo, bg=OVERLAY_BG, borderwidth=0)
@@ -247,7 +249,7 @@ class DesktopMessage:
         ).place(relx=0.5, rely=0.26, anchor="center")
 
         photo = _load_picture(
-            self.picture, (root.winfo_screenwidth(), root.winfo_screenheight())
+            self.picture, root, (root.winfo_screenwidth(), root.winfo_screenheight())
         )
         if photo is not None:
             picture_label = tk.Label(root, image=photo, bg=OVERLAY_BG, borderwidth=0)

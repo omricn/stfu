@@ -41,8 +41,11 @@ class _PinDialog:
         self.result: str | None = None
 
         self.root = tk.Tk()
-        appicon.set_window_icon(self.root)
+        # Title first, then decoration. When the icon call used to throw, it
+        # aborted construction and left a bare window captioned "tk" with no
+        # widgets in it, which is a far worse failure than a missing icon.
         self.root.title(title)
+        appicon.set_window_icon(self.root)
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)

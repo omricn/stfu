@@ -16,12 +16,15 @@ express, so the tray keeps its own circles rather than reusing this one.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from PIL import Image, ImageDraw
 
 if TYPE_CHECKING:
     import tkinter as tk
+
+log = logging.getLogger(__name__)
 
 # A dark blue-grey speaker body with a red mute slash. Both shapes are
 # simple, large, and high-contrast on purpose -- fine detail (cone ridges,
@@ -86,6 +89,22 @@ def set_window_icon(window: "tk.Misc") -> None:
     """
     from PIL import ImageTk
 
-    photos = [ImageTk.PhotoImage(draw_icon(size)) for size in (16, 32, 48, 64)]
-    window._stfu_icon_refs = photos  # type: ignore[attr-defined]
-    window.iconphoto(True, *photos)
+    # master= is not optional. A PhotoImage with no master binds to
+    # tkinter._default_root -- the hidden pump root in app.py -- while
+    # iconphoto runs on this window's own interpreter, and Tk rejects the
+    # image with "can't use pyimage1 as iconphoto: not a photo image". Same
+    # root cause as the master-less variables fixed in F1.
+    try:
+        photos = [
+            ImageTk.PhotoImage(draw_icon(size), master=window)
+            for size in (16, 32, 48, 64)
+        ]
+        # Tk keeps no reference of its own; a collected PhotoImage silently
+        # reverts to the default icon.
+        window._stfu_icon_refs = photos  # type: ignore[attr-defined]
+        window.iconphoto(True, *photos)
+    except Exception:
+        # An icon is decoration. A window that refuses to open because its
+        # decoration failed is a broken app -- this exact failure left a bare
+        # untitled window where the PIN prompt should have been.
+        log.exception("could not apply the app icon")

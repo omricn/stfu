@@ -15,7 +15,18 @@ from pathlib import Path
 import pytest
 
 STFU_DIR = Path(__file__).parent.parent / "stfu"
-TK_VARIABLE_NAMES = {"StringVar", "BooleanVar", "IntVar", "DoubleVar"}
+# PhotoImage belongs here for exactly the same reason, learned the hard way
+# after the variable fix: a master-less ImageTk.PhotoImage bound to the
+# hidden pump root, and iconphoto on another window's interpreter raised
+# "can't use pyimage1 as iconphoto", leaving a bare untitled window where
+# the PIN prompt should have been.
+TK_VARIABLE_NAMES = {
+    "StringVar",
+    "BooleanVar",
+    "IntVar",
+    "DoubleVar",
+    "PhotoImage",
+}
 
 
 def _callee_name(node: ast.Call) -> str | None:
