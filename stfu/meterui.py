@@ -48,16 +48,18 @@ def _meter_x(dbfs: float) -> int:
 
 
 class MeterWindow:
-    """`show()` opens its own window and blocks the caller until it is
-    closed, the same convention every other window in this project follows."""
+    """`show()` builds a Toplevel of `master` (app.py's one Tk root) and
+    returns immediately -- it does not block. It refreshes itself with its
+    own after()-driven timer until closed."""
 
-    def __init__(self, meter: MeterState) -> None:
+    def __init__(self, master: tk.Misc, meter: MeterState) -> None:
+        self._master = master
         self._meter = meter
-        self.root: tk.Tk | None = None
+        self.root: tk.Toplevel | None = None
         self._after_id: str | None = None
 
     def show(self) -> None:
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(self._master)
         appicon.set_window_icon(self.root)
         self.root.title("S.TFU - live meter")
 
@@ -101,7 +103,6 @@ class MeterWindow:
         self._cooldown_label.pack(fill="x", padx=16, pady=(0, 16))
 
         self._refresh()
-        self.root.mainloop()
 
     def _refresh(self) -> None:
         reading = self._meter.read()

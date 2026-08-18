@@ -13,9 +13,11 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import tkinter as tk
 from datetime import datetime
 
 from stfu.actions import ActionRegistry
+from stfu.app import create_hidden_root
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource, list_input_devices
 from stfu.config import config_path, data_dir, load_config, save_config
@@ -55,8 +57,32 @@ def cmd_pin(args) -> int:
     return 0
 
 
-def build_real_actions(config) -> ActionRegistry:
-    """The live action registry: real windows, real sound, real Win32."""
+class _WaitingWindow:
+    """Adapts a real window so this CLI's synchronous frame loop still blocks
+    until it is dismissed, the way it always has.
+
+    There is no bridge or second thread here -- `cmd_monitor` reads frames
+    and dispatches actions on the same, single thread -- so the window
+    classes' own non-blocking show() (see overlay.py) needs something to wait
+    on. `root.wait_window()` is the same supported mechanism app.py's PIN
+    prompt uses to block without a nested mainloop().
+    """
+
+    def __init__(self, root: tk.Misc, window) -> None:
+        self._root = root
+        self._window = window
+
+    def show(self) -> None:
+        top = self._window.show()
+        self._root.wait_window(top)
+
+
+def build_real_actions(config, root: tk.Misc) -> ActionRegistry:
+    """The live action registry: real windows, real sound, real Win32.
+
+    `root` is the one hidden Tk root `cmd_monitor` creates for `--real` (see
+    create_hidden_root() in app.py) -- every window here is a Toplevel of it.
+    """
     sounds_root = data_dir() / "sounds"
     for rung in ("first", "repeat"):
         (sounds_root / rung).mkdir(parents=True, exist_ok=True)
@@ -76,13 +102,20 @@ def build_real_actions(config) -> ActionRegistry:
             gain=config.sound_gain,
             max_seconds=config.max_clip_seconds,
         ),
-        overlay_factory=lambda: FourClickOverlay(
-            ClickTracker(config.overlay_clicks_required),
-            "Volume check",
-            pictures.pick(),
+        overlay_factory=lambda: _WaitingWindow(
+            root,
+            FourClickOverlay(
+                root,
+                ClickTracker(config.overlay_clicks_required),
+                "Volume check",
+                pictures.pick(),
+            ),
         ),
-        message_factory=lambda: DesktopMessage(
-            "Too loud", config.desktop_message_seconds, pictures.pick()
+        message_factory=lambda: _WaitingWindow(
+            root,
+            DesktopMessage(
+                root, "Too loud", config.desktop_message_seconds, pictures.pick()
+            ),
         ),
     )
 
@@ -98,10 +131,16 @@ def cmd_monitor(args) -> int:
         print(f"Device not found: {config.device_name}", file=sys.stderr)
         return 2
 
+    # Only --real ever opens a window, and this is the only place in the CLI
+    # path that needs a Tk root to make one a Toplevel of -- there is no App
+    # instance here to own one, so this asks app.py for the same hidden root
+    # it would build itself (see create_hidden_root()'s docstring).
+    root = create_hidden_root() if args.real else None
+
     engine = Engine(
         config=config,
         source=source,
-        actions=build_real_actions(config) if args.real else PrintingActions(),
+        actions=build_real_actions(config, root) if args.real else PrintingActions(),
         logstore=LogStore(data_dir() / "events.jsonl"),
     )
 
@@ -123,6 +162,8 @@ def cmd_monitor(args) -> int:
         print("\nStopping.")
     finally:
         source.close()
+        if root is not None:
+            root.destroy()
         engine.stop()
     return 0
 

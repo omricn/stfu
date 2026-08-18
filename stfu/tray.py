@@ -7,8 +7,8 @@ macOS -- it does not have to be the process's main thread. Only Tk is nailed
 to one thread here.
 
 That means every menu click lands on pystray's own thread, not Tk's. Anything
-that touches Tk -- a window `action` opens, or the PIN prompt's own `Tk()` --
-is therefore dispatched through the UiBridge rather than called directly. This
+that touches Tk -- a window `action` opens, or the PIN prompt's dialog -- is
+therefore dispatched through the UiBridge rather than called directly. This
 project has shipped that bug twice already: a window built off the Tk thread
 looks fine until the moment it doesn't.
 """
@@ -22,7 +22,6 @@ from typing import Callable
 import pystray
 from PIL import Image, ImageDraw
 
-from stfu import pinprompt
 from stfu.config import Config, data_dir
 
 log = logging.getLogger(__name__)
@@ -77,9 +76,15 @@ class Tray:
         on_meter: Callable[[], None],
         on_pause: Callable[[], None],
         on_exit: Callable[[], None],
+        gate: Callable[[], bool],
     ) -> None:
         self.config = config
         self.bridge = bridge
+        # Supplied by app.py rather than calling stfu.pinprompt directly, so
+        # this module does not need to know about app.py's Tk root -- the
+        # PIN dialog is a Toplevel of it now, not a standalone Tk() of its
+        # own, and only app.py has that root to hand over.
+        self._gate = gate
         self._state = STATE_LISTENING
 
         self.icon = pystray.Icon(
@@ -141,7 +146,7 @@ class Tray:
 
         def callback(icon, item) -> None:
             def task() -> None:
-                if gated and not pinprompt.gate(self.config):
+                if gated and not self._gate():
                     return
                 action()
 

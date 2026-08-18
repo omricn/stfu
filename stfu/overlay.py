@@ -85,13 +85,18 @@ BUTTON_SIZE = (140, 48)
 IMAGE_FRACTION = (0.5, 0.40)  # of screen width, height
 
 
-def _fullscreen_root(fraction: float | None) -> tk.Tk:
+def _fullscreen_root(master: tk.Misc, fraction: float | None) -> tk.Toplevel:
     """A borderless, always-on-top, centred window.
 
-    `fraction` of None means true fullscreen; a fraction sizes it relative to
-    the screen. Both are override-redirect, so there is no title bar to close.
+    A Toplevel of `master` -- app.py's one Tk root -- never its own Tk(). A
+    second interpreter is exactly what made the desktop message's window
+    fail to reappear after strikes 3 and 4 (see app.py's module docstring):
+    its mainloop() never returned, so the re-entry guard around it never
+    cleared. `fraction` of None means true fullscreen; a fraction sizes it
+    relative to the screen. Both are override-redirect, so there is no title
+    bar to close.
     """
-    root = tk.Tk()
+    root = tk.Toplevel(master)
     appicon.set_window_icon(root)
     root.configure(bg=OVERLAY_BG)
     root.overrideredirect(True)
@@ -153,15 +158,22 @@ class FourClickOverlay:
     """Near-fullscreen overlay whose close button jumps after every click."""
 
     def __init__(
-        self, tracker: ClickTracker, message: str, picture: Path | None = None
+        self,
+        master: tk.Misc,
+        tracker: ClickTracker,
+        message: str,
+        picture: Path | None = None,
     ) -> None:
+        self.master = master
         self.tracker = tracker
         self.message = message
         self.picture = picture
 
-    def show(self) -> None:
-        """Display the overlay and block until it is dismissed."""
-        root = _fullscreen_root(OVERLAY_FRACTION)
+    def show(self) -> tk.Toplevel:
+        """Display the overlay and return it immediately -- it does not
+        block. The caller finds out when it closes via the Toplevel's own
+        <Destroy> event, not by waiting here (see _BridgedWindow in app.py)."""
+        root = _fullscreen_root(self.master, OVERLAY_FRACTION)
 
         # Esc and Alt+F4 are suppressed: with them available, the four clicks
         # are theatre.
@@ -217,7 +229,7 @@ class FourClickOverlay:
         button.configure(command=on_click)
         root.update_idletasks()
         move()
-        root.mainloop()
+        return root
 
     def _counter_text(self) -> str:
         remaining = self.tracker.remaining
@@ -228,15 +240,22 @@ class DesktopMessage:
     """Fullscreen message that dismisses itself after a set time."""
 
     def __init__(
-        self, message: str, seconds: int, picture: Path | None = None
+        self,
+        master: tk.Misc,
+        message: str,
+        seconds: int,
+        picture: Path | None = None,
     ) -> None:
+        self.master = master
         self.message = message
         self.seconds = seconds
         self.picture = picture
 
-    def show(self) -> None:
-        """Display the message and block until it auto-dismisses."""
-        root = _fullscreen_root(None)
+    def show(self) -> tk.Toplevel:
+        """Display the message and return it immediately -- it does not
+        block. It still self-dismisses after `seconds` via its own after()
+        callback; the caller finds out via <Destroy> (see _BridgedWindow)."""
+        root = _fullscreen_root(self.master, None)
         root.protocol("WM_DELETE_WINDOW", lambda: None)
 
         tk.Label(
@@ -257,4 +276,4 @@ class DesktopMessage:
             picture_label.place(relx=0.5, rely=0.62, anchor="center")
 
         root.after(int(self.seconds * 1000), root.destroy)
-        root.mainloop()
+        return root

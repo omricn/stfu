@@ -17,12 +17,13 @@ ACTION_COLOURS = {"overlay_4click": "#f0a500", "desktop_drop": "#d64545"}
 
 
 class ReportWindow:
-    def __init__(self, store: LogStore) -> None:
+    def __init__(self, master: tk.Misc, store: LogStore) -> None:
+        self.master = master
         self.store = store
 
     def show(self) -> None:
         sessions = self.store.sessions()
-        root = tk.Tk()
+        root = tk.Toplevel(self.master)
         appicon.set_window_icon(root)
         root.title("S.TFU report")
 
@@ -118,4 +119,3 @@ class ReportWindow:
         if sessions:
             chooser.current(0)
             load()
-        root.mainloop()

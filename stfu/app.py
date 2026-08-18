@@ -1,31 +1,47 @@
 """Wiring, lifecycle, and device watch: turns the engine into an app.
 
-Three threads want attention here -- Tk (main), audio capture, and pystray --
-and actions.fire() must block the capture thread until a window it opened is
-dismissed, because the engine uses the return value to suppress detection.
-uibridge.py resolves that; this module assembles the pieces around it and
-owns the order everything starts and stops in.
+Three threads want attention here -- Tk (main), audio capture, and pystray.
 
-Two things below exist only because of hard-won, empirically confirmed
-findings about nesting independent Tk() windows inside this hidden root's
-event loop -- every window class in this project (the overlay, the desktop
-message, the report, settings, the PIN prompt) builds its own `tk.Tk()` and
-calls `.mainloop()` on it, and that mainloop() runs *nested* inside this
-module's pump loop whenever it is reached through the bridge:
+**This module owns the only `tk.Tk()` in the running app** (the hidden pump
+root below), with one sanctioned exception: `firstrunui.FirstRunWizard`,
+which runs before this root exists and is destroyed before it is created.
+Every window elsewhere in `stfu/` -- the overlay, the desktop message, the
+report, settings, the meter, the calibration dialog, the PIN prompt -- is a
+`tk.Toplevel` of this root, not a `Tk()` of its own, and none of them call
+`.mainloop()`. `tests/test_single_tk_root.py` enforces this mechanically.
 
-1. `_pump` reschedules its own next call *before* draining the bridge queue.
-   If the hidden root has no pending timer at the moment a queued request
-   opens one of those nested windows, the nested mainloop() can hang forever
-   instead of returning once its own window closes -- confirmed by direct
-   reproduction, not a guess. Keeping a timer always pending avoids it.
+That used to not be true, and it produced five separate field bugs: settings
+rendering blank (variables bound to the wrong interpreter), the PIN prompt
+opening as a bare untitled window (a PhotoImage bound to the wrong
+interpreter, throwing before the dialog finished building), a deadlocked
+capture thread, a desktop message whose nested mainloop() never returned (so
+the re-entry guard around it never cleared and later strikes played sound
+with no window), and a PIN-gated tray item whose window never appeared after
+the PIN was accepted. Patching each instance individually never held; only
+removing the second interpreter did.
+
+A caller that genuinely needs to block until a window closes (the PIN
+prompt's `gate()`, so a menu action does not fire before the PIN is checked)
+uses `master.wait_window(toplevel)` -- Tk's supported modal mechanism, which
+reliably returns once the window is destroyed and does not share `mainloop()`'s
+quit()-flag ambiguity (see point 2 below). Every other window's `show()`
+returns as soon as it has built its Toplevel; `_BridgedWindow` below finds out
+when it actually closes via the Toplevel's own `<Destroy>` event.
+
+Two more things below are still true with a single interpreter:
+
+1. `_pump` reschedules its own next call *before* draining the bridge queue,
+   so the hidden root always has a pending timer. `wait_window()` (used by
+   the PIN gate) runs its own nested event-processing loop while it waits,
+   and depends on that timer to keep firing during the wait.
 
 2. Shutdown ends the hidden root with `destroy()`, never `quit()`. `quit()`
-   sets a flag shared by every mainloop() call on this thread, and it is
-   consumed by whichever one is currently innermost -- which, if a window
-   opened through the bridge happens to be showing when Exit is pressed, is
-   that window's loop, not this root's. The app would hang, having quietly
-   closed the wrong loop. `destroy()` is scoped to this widget and unwinds
-   this root's mainloop() correctly regardless of what is nested inside it.
+   sets a flag shared by every mainloop() call on this thread, and with two
+   or more `Tk()` instances it would be consumed by whichever mainloop() is
+   currently innermost rather than this root's own -- moot now that this is
+   the only mainloop() in the process, but `destroy()` is the correct call
+   regardless: it is scoped to this widget and unwinds its own mainloop()
+   deterministically.
 """
 
 from __future__ import annotations
@@ -53,6 +69,7 @@ from stfu.logstore import LogStore
 from stfu.meter import MeterState
 from stfu.meterui import MeterWindow
 from stfu.overlay import ClickTracker, DesktopMessage, FourClickOverlay
+from stfu import pinprompt
 from stfu.reportui import ReportWindow
 from stfu.settingsui import SettingsWindow
 from stfu.sounds import RUNG_FIRST, RUNG_REPEAT, ClipLibrary, MiniaudioPlayer, SoundBite
@@ -122,6 +139,18 @@ class _BridgedWindow:
     A window still showing is not reopened: two overlays stacked on each other
     would be worse than one, and the cooldown means it can only happen when
     something has already gone wrong.
+
+    The re-entry guard used to be cleared in a `finally` around the window's
+    own `mainloop()`, which only ran once that call returned. Now that
+    `show()` on the window classes themselves returns immediately (see
+    overlay.py), there is no call to hang a `finally` off any more -- so the
+    guard is cleared by the Toplevel's own `<Destroy>` event instead, which
+    fires exactly once, whenever and however the window actually closes. A
+    guard that can only be set and never guaranteed to clear is worse than no
+    guard at all (that was bug #4: a desktop message's nested mainloop() never
+    returned, so this flag latched on and silently ate strikes 3 and 4). If
+    the window fails to even build, the `except` below clears it directly,
+    since no Toplevel -- and so no `<Destroy>` event -- ever existed.
     """
 
     def __init__(self, bridge: UiBridge, factory: Callable[[], object]) -> None:
@@ -137,12 +166,12 @@ class _BridgedWindow:
 
         def run() -> None:
             try:
-                self._factory().show()
-            finally:
-                # Cleared on the Tk thread once the window's own mainloop has
-                # returned, so the flag can never latch on and suppress every
-                # future popup.
+                top = self._factory().show()
+            except Exception:
+                log.exception("failed to build/show window")
                 self._open.clear()
+                return
+            top.bind("<Destroy>", lambda _e: self._open.clear(), add="+")
 
         self._bridge.submit_async(run)
 
@@ -152,9 +181,18 @@ def _ensure_sound_dirs(sounds_root) -> None:
         (sounds_root / rung).mkdir(parents=True, exist_ok=True)
 
 
-def _build_actions(config: Config, bridge: UiBridge) -> ActionRegistry:
+def _build_actions(
+    config: Config, bridge: UiBridge, get_master: Callable[[], tk.Misc]
+) -> ActionRegistry:
     """The live action registry: real windows (marshalled through the
-    bridge), real sound, real Win32."""
+    bridge), real sound, real Win32.
+
+    `get_master` is called lazily, once per trigger, not eagerly here -- this
+    runs during App.__init__, before App.run() has created the hidden Tk
+    root these windows must be a Toplevel of. By the time a trigger actually
+    calls it, the bridge has already dispatched onto the Tk thread and the
+    root is guaranteed to exist.
+    """
     sounds_root = data_dir() / "sounds"
     _ensure_sound_dirs(sounds_root)
 
@@ -170,6 +208,7 @@ def _build_actions(config: Config, bridge: UiBridge) -> ActionRegistry:
     overlay_window = _BridgedWindow(
         bridge,
         lambda: FourClickOverlay(
+            get_master(),
             ClickTracker(config.overlay_clicks_required),
             "Volume check",
             pictures.pick(),
@@ -178,7 +217,7 @@ def _build_actions(config: Config, bridge: UiBridge) -> ActionRegistry:
     message_window = _BridgedWindow(
         bridge,
         lambda: DesktopMessage(
-            "Too loud", config.desktop_message_seconds, pictures.pick()
+            get_master(), "Too loud", config.desktop_message_seconds, pictures.pick()
         ),
     )
 
@@ -202,6 +241,22 @@ def _apply_autostart(config: Config) -> None:
         autostart.disable()
 
 
+def create_hidden_root() -> tk.Tk:
+    """The one `tk.Tk()` this module constructs.
+
+    Used by `App.run()` for the real app, and by `stfu.cli`'s
+    `monitor --real`, which has no App instance of its own but still needs
+    exactly one root for its windows to be a Toplevel of -- rather than have
+    cli.py construct a second `tk.Tk()` call site, it asks this module for
+    one, keeping the construction itself in exactly one place (see
+    tests/test_single_tk_root.py).
+    """
+    root = tk.Tk()
+    appicon.set_window_icon(root)
+    root.withdraw()
+    return root
+
+
 class App:
     """Wires the engine to real hardware and windows, and owns the lifecycle
     of the capture and tray threads plus the hidden Tk root this object's
@@ -211,7 +266,12 @@ class App:
         self.config = config
         self.bridge = UiBridge()
         self.logstore = LogStore(data_dir() / "events.jsonl")
-        self.actions = _build_actions(config, self.bridge)
+        # Windows are not built with a master here -- run() has not created
+        # the hidden root yet. get_master() is read lazily by _build_actions'
+        # factories and by the tray's gate, once each is actually invoked
+        # (always after run() has assigned self.root; see _build_actions).
+        self.root: tk.Tk | None = None
+        self.actions = _build_actions(config, self.bridge, lambda: self.root)
         self.source = MicSource(config.device_name, config.device_hostapi)
         self.engine = Engine(config, self.source, self.actions, self.logstore)
         self.meter = MeterState()
@@ -229,9 +289,9 @@ class App:
             on_meter=self._open_meter,
             on_pause=self._pause,
             on_exit=self._request_exit,
+            gate=lambda: pinprompt.gate(self.config, self.root),
         )
 
-        self.root: tk.Tk | None = None
         self._capture_thread: threading.Thread | None = None
         self._tray_thread: threading.Thread | None = None
 
@@ -246,9 +306,7 @@ class App:
         )
         self._tray_thread.start()
 
-        self.root = tk.Tk()
-        appicon.set_window_icon(self.root)
-        self.root.withdraw()
+        self.root = create_hidden_root()
         self.root.after(PUMP_INTERVAL_MS, self._pump)
         self.root.mainloop()
 
@@ -371,15 +429,15 @@ class App:
     # window directly.
 
     def _open_report(self) -> None:
-        ReportWindow(self.logstore).show()
+        ReportWindow(self.root, self.logstore).show()
 
     def _open_settings(self) -> None:
-        SettingsWindow(self.config).show()
+        SettingsWindow(self.root, self.config).show()
 
     def _open_meter(self) -> None:
         # Read-only diagnostics (F5): no PIN, and it reads self.meter rather
         # than touching the engine or the capture thread directly.
-        MeterWindow(self.meter).show()
+        MeterWindow(self.root, self.meter).show()
 
     def _open_recalibrate(self) -> None:
         # The tray shortcut opens the calibration flow directly (F3) rather
@@ -395,7 +453,7 @@ class App:
 
         CalibrationDialog(
             self.config, on_result=apply_result, success_suffix=" Saved."
-        ).show()
+        ).show(self.root)
 
     def _pause(self) -> None:
         self.engine.pause()

@@ -29,9 +29,10 @@ log = logging.getLogger(__name__)
 class SettingsWindow:
     """One form, one Save. Closing any other way discards changes."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, master: tk.Misc, config: Config) -> None:
+        self.master = master
         self.config = config
-        self.root: tk.Tk | None = None
+        self.root: tk.Toplevel | None = None
         self._status: tk.Label | None = None
         self._calibration: CalibrationDialog | None = None
 
@@ -41,7 +42,7 @@ class SettingsWindow:
         self._bools: dict[str, tk.BooleanVar] = {}
 
     def show(self) -> None:
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(self.master)
         appicon.set_window_icon(self.root)
         self.root.title("S.TFU settings")
 
@@ -120,8 +121,6 @@ class SettingsWindow:
         tk.Button(buttons, text="Save", command=self._save).pack(
             side="right", padx=(0, 8)
         )
-
-        self.root.mainloop()
 
     # --- form construction ----------------------------------------------
 

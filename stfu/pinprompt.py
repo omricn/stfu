@@ -5,6 +5,13 @@ pressing Enter or OK even when the typed PIN is already correct. The dialog
 here checks the PIN against the stored hash after every keystroke and closes
 itself the instant it matches -- Enter and an OK button remain, for a wrong
 PIN or for anyone who prefers to type-and-confirm.
+
+This dialog is a Toplevel of the caller's `master` (app.py's one Tk root),
+never its own Tk(). `gate()` genuinely needs the result before it can return,
+so it uses `master.wait_window()` -- the Tk-supported way to block until a
+window closes -- rather than a nested mainloop(). A nested mainloop() here
+was bug #5: after the PIN was accepted the dialog's own separate interpreter
+closed, but the window that was meant to follow never appeared.
 """
 
 from __future__ import annotations
@@ -33,14 +40,16 @@ class _PinDialog:
 
     def __init__(
         self,
+        master: tk.Misc,
         title: str,
         prompt: str,
         verify: Callable[[str], bool] | None = None,
     ) -> None:
+        self.master = master
         self._verify = verify
         self.result: str | None = None
 
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(master)
         # Title first, then decoration. When the icon call used to throw, it
         # aborted construction and left a bare window captioned "tk" with no
         # widgets in it, which is a far worse failure than a missing icon.
@@ -71,7 +80,11 @@ class _PinDialog:
         entry.focus_set()
 
     def show(self) -> str | None:
-        self.root.mainloop()
+        # wait_window() processes events and returns once self.root is
+        # destroyed -- unlike mainloop(), it does not consume a quit() flag
+        # shared with app.py's own root, and it does not need to be the
+        # innermost loop on the thread to return correctly.
+        self.master.wait_window(self.root)
         return self.result
 
     def _on_key(self, _event=None) -> None:
@@ -98,28 +111,28 @@ class _PinDialog:
         self.root.destroy()
 
 
-def ask_pin(title: str = "S.TFU", prompt: str = "PIN:") -> str | None:
+def ask_pin(master: tk.Misc, title: str = "S.TFU", prompt: str = "PIN:") -> str | None:
     """Modal PIN prompt with no live verification. Returns None if cancelled.
 
     Used only where there is nothing yet to check the entry against -- see
     `ask_new_pin`. The tray's own PIN check is `gate`, below, which verifies
     on each keystroke.
     """
-    return _PinDialog(title, prompt).show()
+    return _PinDialog(master, title, prompt).show()
 
 
-def ask_new_pin() -> str | None:
+def ask_new_pin(master: tk.Misc) -> str | None:
     """Ask twice and require a match. None if cancelled or mismatched."""
-    first = ask_pin(prompt="Choose a PIN:")
+    first = ask_pin(master, prompt="Choose a PIN:")
     if not first:
         return None
-    second = ask_pin(prompt="Confirm the PIN:")
+    second = ask_pin(master, prompt="Confirm the PIN:")
     if first != second:
         return None
     return first
 
 
-def gate(config: Config) -> bool:
+def gate(config: Config, master: tk.Misc) -> bool:
     """True if the user entered the right PIN.
 
     Verifies on each keystroke and closes the dialog the instant the PIN is
@@ -129,6 +142,7 @@ def gate(config: Config) -> bool:
     can end any process, and that is understood.
     """
     result = _PinDialog(
+        master,
         "S.TFU",
         "PIN:",
         verify=lambda pin: verify_pin(pin, config.pin_hash, config.pin_salt),

@@ -31,13 +31,10 @@ FRAMES_PER_SECOND = 50
 class CalibrationDialog:
     """Runs the three-sample calibration flow in a small window.
 
-    `show()` with no arguments opens its own top-level window and blocks the
-    caller until it is closed -- the same pattern every other window in this
-    project follows (see app.py's module docstring on nested mainloop()s).
-    Pass `master=` to embed it as a Toplevel of an already-running window
-    instead; then `show()` returns immediately and the dialog floats
-    alongside its parent, exactly as it did when this was a method on
-    SettingsWindow.
+    `show(master)` builds a Toplevel of `master` and returns immediately --
+    it does not block. `master` is always app.py's one Tk root or a Toplevel
+    of it (e.g. SettingsWindow's own window when opened via its Recalibrate
+    button); there is no standalone Tk()-owning mode any more.
 
     `on_result` is called on the Tk thread with the CalibrationResult once a
     run finishes -- the caller decides what to do with it (the settings
@@ -69,9 +66,8 @@ class CalibrationDialog:
         """
         self._cancel.set()
 
-    def show(self, master: tk.Misc | None = None) -> None:
-        owns_loop = master is None
-        dialog = tk.Tk() if owns_loop else tk.Toplevel(master)
+    def show(self, master: tk.Misc) -> None:
+        dialog = tk.Toplevel(master)
         dialog.title("Recalibrate")
 
         # Come to the front once, without staying pinned there. A window that
@@ -178,6 +174,3 @@ class CalibrationDialog:
                 target=run_calibration, daemon=True
             ).start(),
         ).pack(pady=8)
-
-        if owns_loop:
-            dialog.mainloop()
