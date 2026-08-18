@@ -126,7 +126,7 @@ class SettingsWindow:
         row = tk.Frame(parent)
         row.pack(fill="x", pady=4)
         tk.Label(row, text=label, width=26, anchor="w").pack(side="left")
-        var = tk.StringVar(value=str(getattr(self.config, name)))
+        var = tk.StringVar(master=self.root, value=str(getattr(self.config, name)))
         tk.Entry(row, textvariable=var, width=14).pack(side="left")
         self._fields[name] = var
 
@@ -134,19 +134,19 @@ class SettingsWindow:
         row = tk.Frame(parent)
         row.pack(fill="x", pady=4)
         tk.Label(row, text=label, width=26, anchor="w").pack(side="left")
-        var = tk.StringVar(value=getattr(self.config, name))
+        var = tk.StringVar(master=self.root, value=getattr(self.config, name))
         ttk.Combobox(
             row, textvariable=var, values=list(values), state="readonly", width=14
         ).pack(side="left")
         self._fields[name] = var
 
     def _add_bool(self, parent: tk.Frame, name: str, label: str) -> None:
-        var = tk.BooleanVar(value=bool(getattr(self.config, name)))
+        var = tk.BooleanVar(master=self.root, value=bool(getattr(self.config, name)))
         tk.Checkbutton(parent, text=label, variable=var).pack(anchor="w", pady=4)
         self._bools[name] = var
 
     def _add_autostart(self, parent: tk.Frame) -> None:
-        var = tk.BooleanVar(value=bool(self.config.autostart))
+        var = tk.BooleanVar(master=self.root, value=bool(self.config.autostart))
 
         def toggle() -> None:
             enabled = bool(var.get())

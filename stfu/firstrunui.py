@@ -336,7 +336,7 @@ class FirstRunWizard:
         # Default on, but only on the first visit. Re-rendering must not
         # overwrite a choice the user already made and then navigated away from.
         current = bool(self.flow.answers.get("autostart", True))
-        variable = tk.BooleanVar(value=current)
+        variable = tk.BooleanVar(master=self.root, value=current)
         self.flow.record(autostart=current)
 
         def toggle() -> None:
