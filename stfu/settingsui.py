@@ -90,6 +90,7 @@ class SettingsWindow:
         )
         self._add_entry(form, "rolling_reset_minutes", "Rolling reset (minutes)")
         self._add_entry(form, "nightly_reset_hour", "Nightly reset hour (0-23)")
+        self._add_entry(form, "overlay_strikes", "Popups before desktop drop")
         # Turning both of these off leaves detection and logging running with
         # no interruption at all -- worth a night before letting it react.
         self._add_bool(form, "popups_enabled", "Show popups")

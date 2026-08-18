@@ -10,10 +10,11 @@ def test_defaults_match_the_spec():
     assert cfg.threshold_mode == "wizard"
     assert cfg.spike_window_ms == 150
     assert cfg.sustain_enabled is False
-    assert cfg.cooldown_seconds == 30
+    assert cfg.cooldown_seconds == 10
     assert cfg.session_reset_mode == "session"
     assert cfg.overlay_clicks_required == 4
     assert cfg.desktop_message_seconds == 10
+    assert cfg.overlay_strikes == 2
 
 
 def test_save_then_load_round_trips(tmp_path):
@@ -87,6 +88,8 @@ def test_verify_pin_returns_false_when_no_pin_is_set():
         ("spike_window_ms", -1),
         ("max_clip_seconds", 0),
         ("max_clip_seconds", -5),
+        ("overlay_strikes", -1),
+        ("overlay_strikes", 11),
     ],
 )
 def test_invalid_values_fall_back_to_defaults(tmp_path, field, value):

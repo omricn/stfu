@@ -32,7 +32,7 @@ class Config:
     sustain_enabled: bool = False
     sustain_threshold_dbfs: float = -24.0
     sustain_window_ms: int = 3000
-    cooldown_seconds: int = 30
+    cooldown_seconds: int = 10
 
     # Adaptive mode
     adaptive_delta_db: float = 18.0
@@ -44,6 +44,10 @@ class Config:
     session_reset_mode: str = "session"
     rolling_reset_minutes: int = 60
     nightly_reset_hour: int = 4
+    # How many strikes get the overlay popup before the ladder escalates to
+    # the fullscreen desktop drop. 0 means escalate immediately, on the
+    # first strike.
+    overlay_strikes: int = 2
 
     # Actions (consumed by Plan 2, stored here so settings stay in one place)
     overlay_clicks_required: int = 4
@@ -87,6 +91,8 @@ def _coerce(cfg: Config) -> Config:
         cfg.sustain_window_ms = default.sustain_window_ms
     if cfg.overlay_clicks_required < 1:
         cfg.overlay_clicks_required = default.overlay_clicks_required
+    if not 0 <= cfg.overlay_strikes <= 10:
+        cfg.overlay_strikes = default.overlay_strikes
     if cfg.desktop_message_seconds < 1:
         cfg.desktop_message_seconds = default.desktop_message_seconds
     if cfg.max_clip_seconds < 1 or cfg.max_clip_seconds > 120:

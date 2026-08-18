@@ -42,6 +42,7 @@ class Engine:
             reset_mode=config.session_reset_mode,
             rolling_minutes=config.rolling_reset_minutes,
             nightly_hour=config.nightly_reset_hour,
+            overlay_strikes=config.overlay_strikes,
         )
         self.paused = False
         self._logged_session: str | None = None

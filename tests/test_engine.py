@@ -64,12 +64,23 @@ def test_first_yell_fires_the_overlay(parts):
     assert actions.names() == [ACTION_OVERLAY]
 
 
-def test_second_yell_fires_the_desktop_drop(parts):
+def test_second_yell_also_fires_the_overlay(parts):
+    # The owner asked for two popups before escalating -- the fixture's
+    # Config uses the default overlay_strikes=2, so the second yell of a
+    # session is still the overlay, not the desktop drop.
     engine, actions = parts
     base = datetime(2026, 8, 17, 20, 0)
     yell(engine, 0.0, base)
     yell(engine, 60.0, base + timedelta(seconds=60))
-    assert actions.names() == [ACTION_OVERLAY, ACTION_DESKTOP_DROP]
+    assert actions.names() == [ACTION_OVERLAY, ACTION_OVERLAY]
+
+
+def test_third_yell_fires_the_desktop_drop(parts):
+    engine, actions = parts
+    base = datetime(2026, 8, 17, 20, 0)
+    for i in range(3):
+        yell(engine, i * 60.0, base + timedelta(seconds=i * 60))
+    assert actions.names() == [ACTION_OVERLAY, ACTION_OVERLAY, ACTION_DESKTOP_DROP]
 
 
 def test_later_yells_keep_firing_the_desktop_drop(parts):
@@ -77,7 +88,29 @@ def test_later_yells_keep_firing_the_desktop_drop(parts):
     base = datetime(2026, 8, 17, 20, 0)
     for i in range(5):
         yell(engine, i * 60.0, base + timedelta(seconds=i * 60))
-    assert actions.names() == [ACTION_OVERLAY] + [ACTION_DESKTOP_DROP] * 4
+    assert actions.names() == [ACTION_OVERLAY, ACTION_OVERLAY] + [
+        ACTION_DESKTOP_DROP
+    ] * 3
+
+
+def test_overlay_strikes_from_config_controls_when_engine_escalates(tmp_path):
+    # Confirms Engine actually threads config.overlay_strikes through to its
+    # StrikeManager, not just that StrikeManager itself honours it.
+    config = Config(
+        threshold_mode="manual",
+        spike_threshold_dbfs=-12.0,
+        cooldown_seconds=30,
+        overlay_strikes=0,
+    )
+    actions = RecordingActions()
+    engine = Engine(
+        config=config,
+        source=FakeSource([]),
+        actions=actions,
+        logstore=LogStore(tmp_path / "events.jsonl"),
+    )
+    yell(engine, 0.0, datetime(2026, 8, 17, 20, 0))
+    assert actions.names() == [ACTION_DESKTOP_DROP]
 
 
 def test_yells_inside_the_cooldown_fire_nothing(parts):
@@ -187,7 +220,8 @@ def test_an_action_that_raises_does_not_kill_the_engine(tmp_path):
     base = datetime(2026, 8, 17, 20, 0)
     yell(engine, 0.0, base)
     yell(engine, 60.0, base + timedelta(seconds=60))
-    assert actions.names() == [ACTION_OVERLAY, ACTION_DESKTOP_DROP]
+    # Default overlay_strikes=2: both of these are still the overlay.
+    assert actions.names() == [ACTION_OVERLAY, ACTION_OVERLAY]
 
 
 def test_a_trigger_is_logged_before_the_action_runs(tmp_path):

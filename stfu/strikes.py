@@ -1,6 +1,10 @@
 """Session state machine: which action does this trigger deserve?
 
 The ladder has exactly two rungs and never climbs back down within a session.
+`overlay_strikes` controls how many strikes get the popup before it escalates
+to the desktop drop -- the owner asked for two, so a single yell does not
+immediately drop out to the desktop, but it never climbs back down once it
+has escalated.
 """
 
 from __future__ import annotations
@@ -10,6 +14,8 @@ from datetime import datetime, timedelta
 ACTION_OVERLAY = "overlay_4click"
 ACTION_DESKTOP_DROP = "desktop_drop"
 
+DEFAULT_OVERLAY_STRIKES = 2
+
 
 class StrikeManager:
     def __init__(
@@ -17,10 +23,12 @@ class StrikeManager:
         reset_mode: str = "session",
         rolling_minutes: int = 60,
         nightly_hour: int = 4,
+        overlay_strikes: int = DEFAULT_OVERLAY_STRIKES,
     ) -> None:
         self.reset_mode = reset_mode
         self.rolling_minutes = rolling_minutes
         self.nightly_hour = nightly_hour
+        self.overlay_strikes = overlay_strikes
         self.strike_count = 0
         self.session_id: str | None = None
         self._last_trigger: datetime | None = None
@@ -36,7 +44,11 @@ class StrikeManager:
         self.strike_count += 1
         self._last_trigger = now
 
-        action = ACTION_OVERLAY if self.strike_count == 1 else ACTION_DESKTOP_DROP
+        action = (
+            ACTION_OVERLAY
+            if self.strike_count <= self.overlay_strikes
+            else ACTION_DESKTOP_DROP
+        )
         return action, self.strike_count
 
     def end_session(self) -> None:
