@@ -224,7 +224,9 @@ def cmd_demo(args) -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="stfu")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, metavar="{devices,pin,monitor}"
+    )
 
     subparsers.add_parser("devices", help="list input devices").set_defaults(
         func=cmd_devices
@@ -249,9 +251,25 @@ def main(argv=None) -> int:
     # ever read by the help formatter; subparsers.choices (which parse_args
     # actually dispatches through) is untouched, so `stfu demo ...` still
     # works, it just never appears in `stfu --help`.
-    demo = subparsers.add_parser("demo", help=argparse.SUPPRESS)
-    demo.add_argument("--wait", type=float, default=DEMO_WAIT_SECONDS, help=argparse.SUPPRESS)
-    demo.add_argument("--desktop-drop", action="store_true", help=argparse.SUPPRESS)
+    # Hidden from the top-level listing -- it is a recording aid, not a
+    # feature -- but its own flags are documented, because someone who has
+    # found the command still needs to discover --desktop-drop.
+    demo = subparsers.add_parser(
+        "demo",
+        help=argparse.SUPPRESS,
+        description="Fire a real trigger on a timer, for screen recording.",
+    )
+    demo.add_argument(
+        "--wait",
+        type=float,
+        default=DEMO_WAIT_SECONDS,
+        help=f"seconds before firing (default {DEMO_WAIT_SECONDS:g})",
+    )
+    demo.add_argument(
+        "--desktop-drop",
+        action="store_true",
+        help="fire the fullscreen message instead of the 4-click overlay",
+    )
     demo.set_defaults(func=cmd_demo)
     subparsers._choices_actions = [
         a for a in subparsers._choices_actions if a.dest != "demo"
