@@ -85,6 +85,8 @@ OVERLAY_FRACTION = 0.9
 OVERLAY_BG = theme.INK
 OVERLAY_FG = theme.TEXT
 BUTTON_SIZE = (140, 48)
+BUTTON_RADIUS = 10  # BRAND.md: "corner radius 8 on cards and buttons"; a
+# touch larger here so it still reads as a pill at this button's size.
 IMAGE_FRACTION = (0.5, 0.40)  # of screen width, height
 MARK_SIZE = 120
 
@@ -189,6 +191,86 @@ def _load_picture(path: Path | None, root, screen: tuple[int, int]):
         return None
 
 
+def _rounded_rect_points(
+    x0: float, y0: float, x1: float, y1: float, radius: float, arc_steps: int = 6
+) -> list[float]:
+    """Perimeter points for a rounded rectangle, for `Canvas.create_polygon`
+    -- Tk has no native rounded-rectangle primitive. Each corner is sampled
+    as a real quarter-circle arc (rather than the coarser "12-point polygon
+    plus smooth=True" trick, which draws visible diagonal chamfers instead
+    of a curve at this button's size and radius) so it actually looks
+    rounded rather than octagonal.
+    """
+    radius = min(radius, (x1 - x0) / 2, (y1 - y0) / 2)
+    # (centre_x, centre_y, start_degrees, end_degrees) for each corner, in
+    # perimeter order (clockwise in screen coordinates, where y grows
+    # downward): top-right, bottom-right, bottom-left, top-left.
+    corners = [
+        (x1 - radius, y0 + radius, 270, 360),
+        (x1 - radius, y1 - radius, 0, 90),
+        (x0 + radius, y1 - radius, 90, 180),
+        (x0 + radius, y0 + radius, 180, 270),
+    ]
+    points: list[float] = []
+    for cx, cy, start_deg, end_deg in corners:
+        for step in range(arc_steps + 1):
+            angle = math.radians(start_deg + (end_deg - start_deg) * step / arc_steps)
+            points.append(cx + radius * math.cos(angle))
+            points.append(cy + radius * math.sin(angle))
+    return points
+
+
+def _make_close_button(root: tk.Toplevel, on_click) -> tk.Widget:
+    """The overlay's one interactive control: a loud, obviously-clickable
+    button in the brand's indigo with an amber outline, rounded via a Canvas
+    polygon (see `_rounded_rect_points` -- classic `tk.Button` has no corner
+    radius at all, see theme.py's module docstring on where ttk styling
+    cannot reach).
+
+    This used to be a bare `tk.Button(text="Close")` -- a default Windows 95
+    control on an otherwise fully branded dark screen. The mechanic (one
+    button, jumping to a new spot after each of four clicks -- see
+    ClickTracker) is unchanged; only its appearance is.
+
+    Decoration must never break function (see appicon.py's module
+    docstring: an icon failure once left a bare, useless window where the
+    PIN prompt should have been). If the canvas drawing fails for any
+    reason, this falls back to a plain, still-clickable `tk.Button` rather
+    than leaving the overlay with no way to close at all.
+    """
+    width, height = BUTTON_SIZE
+    try:
+        canvas = tk.Canvas(
+            root,
+            width=width,
+            height=height,
+            bg=OVERLAY_BG,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        canvas.create_polygon(
+            _rounded_rect_points(2, 2, width - 2, height - 2, BUTTON_RADIUS),
+            fill=theme.INDIGO,
+            outline=theme.AMBER,
+            width=2,
+        )
+        canvas.create_text(
+            width / 2,
+            height / 2,
+            text=theme.letter_spaced("CLOSE"),
+            fill=theme.TEXT,
+            font=("Segoe UI Semibold", 14, "bold"),
+        )
+        canvas.bind("<Button-1>", lambda _event: on_click())
+        return canvas
+    except Exception:
+        log.exception("could not draw the styled close button; using a plain one")
+        return tk.Button(
+            root, text="Close", font=("Segoe UI", 14), width=12, height=2,
+            command=on_click,
+        )
+
+
 class FourClickOverlay:
     """Near-fullscreen overlay whose close button jumps after every click."""
 
@@ -237,16 +319,19 @@ class FourClickOverlay:
             picture_label.image = photo
             picture_label.place(relx=0.5, rely=0.46, anchor="center")
 
+        # Amber and bold, not the usual dim secondary-text style -- this is
+        # the one screen that should read as urgent rather than tasteful
+        # (see docs/BRAND.md: "the one screen that should not become
+        # tasteful. It exists to be unwelcome.").
         counter = tk.Label(
             root,
             text=self._counter_text(),
             bg=OVERLAY_BG,
-            fg=theme.TEXT_DIM,
-            font=("Segoe UI", 18),
+            fg=theme.AMBER,
+            font=("Segoe UI Semibold", 16, "bold"),
         )
         counter.place(relx=0.5, rely=0.80, anchor="center")
 
-        button = tk.Button(root, text="Close", font=("Segoe UI", 14), width=12, height=2)
         position = {"at": None}
 
         def move() -> None:
@@ -263,7 +348,7 @@ class FourClickOverlay:
             counter.configure(text=self._counter_text())
             move()
 
-        button.configure(command=on_click)
+        button = _make_close_button(root, on_click)
         root.update_idletasks()
         move()
         return root
