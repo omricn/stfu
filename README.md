@@ -30,7 +30,7 @@ It measures how loud the room is in short windows — a few hundredths of a seco
 | **First yell of a session** | Minimises whatever's in the foreground, plays a random sound effect, and shows a near-fullscreen overlay whose close button jumps to a new random spot after each of **four** clicks |
 | **Every later yell that session** | `Win+D` to the desktop, a different sound, and a fullscreen message for 10 seconds |
 
-There's a 30-second cooldown, so one long yell can't chain into several punishments. The escalation is session-cumulative and doesn't decay: once you've had the first one, every subsequent yell that evening goes straight to the desktop drop.
+There's a cooldown after every trigger (10 seconds by default, configurable in Settings), so one long yell can't chain into several punishments. The escalation is session-cumulative and doesn't decay: once you've had the first one, every subsequent yell that evening goes straight to the desktop drop.
 
 Every trigger is logged. A built-in report window shows a chart of when they happened, a table of the detail, and a CSV export.
 

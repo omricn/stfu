@@ -1,6 +1,6 @@
 [project]
 name = "stfu"
-version = "0.1.0"
+version = "1.0.0"
 description = "Noise monitor and nudge app for Windows"
 requires-python = ">=3.12"
 dependencies = [
