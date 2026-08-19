@@ -11,6 +11,7 @@ requires.
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ import numpy as np
 
 from stfu.config import FRAME_MS
 from stfu.levels import rms_of_frame
+
+log = logging.getLogger(__name__)
 
 
 def frame_samples_for_rate(sample_rate: float, frame_ms: int = FRAME_MS) -> int:
