@@ -75,6 +75,10 @@ _FALLBACK_FRAME_MS = 40
 # The gif is played through once at its own recorded speed, not looped, and
 # is stopped early only by a click -- see the module docstring on why a
 # ~3.9s asset is acceptable here (it never delays the app itself).
+_INK_SAMPLE = 48
+_INK_THRESHOLD = 240  # below this a pixel counts as drawn on, not paper
+_STATIC_TOLERANCE = 0.001  # ink difference under which frames look identical
+_HOLD_MS = 500  # how long to rest on the finished mark before dismissing
 _MAX_GIF_MS = 15_000  # a hard ceiling if a corrupt gif reports no frames
 
 
@@ -250,8 +254,10 @@ class SplashWindow:
         progress = self._make_progress_bar(root, content_w, fill_rgb)
         progress.place(x=PAD_X, y=bar_y)
 
-        total_ms = min(_MAX_GIF_MS, sum(f.duration_ms for f in frames))
-        start = time.monotonic()
+        # Kept only as a safety ceiling: a gif claiming absurd frame delays
+        # should not pin the splash on screen indefinitely.
+        budget_ms = min(_MAX_GIF_MS, sum(f.duration_ms for f in frames))
+        deadline = time.monotonic() + budget_ms / 1000 + 1.0
 
         def tick(index: int) -> None:
             if self._closed or self.root is None:
@@ -266,11 +272,14 @@ class SplashWindow:
                 self._frame_refs.pop(0)
             gif_label.configure(image=photo)
 
-            elapsed_ms = (time.monotonic() - start) * 1000
-            self._set_progress(progress, min(1.0, elapsed_ms / total_ms))
+            # Progress tracks frames shown, not wall clock. Decoding a frame
+            # to a PhotoImage costs real time, so elapsed outruns the gif's
+            # own timeline -- and using it to decide when to stop cut the
+            # animation off before its last frame.
+            self._set_progress(progress, (index + 1) / len(frames))
 
             next_index = index + 1
-            if next_index >= len(frames) or elapsed_ms >= total_ms:
+            if next_index >= len(frames) or time.monotonic() > deadline:
                 self._after_id = root.after(frame.duration_ms, self._dismiss)
                 return
             self._after_id = root.after(
@@ -417,4 +426,65 @@ def _load_gif_frames(path) -> list[_Frame]:
             gif.seek(index)
             duration = int(gif.info.get("duration", 40)) or 40
             frames.append(_Frame(gif.convert("RGB"), duration))
-    return frames
+    return _trim_to_the_animation(frames)
+
+
+def _ink(image: Image.Image) -> float:
+    """Roughly how much of a frame is drawn on, 0.0 to 1.0.
+
+    Downsampled hard first: this only has to rank frames against each other,
+    and doing it at full size for every frame of a long gif is wasteful.
+    """
+    small = image.convert("L").resize((_INK_SAMPLE, _INK_SAMPLE))
+    # get_flattened_data() on Pillow 12+, getdata() before it; the
+    # deprecation is noisy in the test suite otherwise.
+    reader = getattr(small, "get_flattened_data", small.getdata)
+    pixels = list(reader())
+    return sum(1 for value in pixels if value < _INK_THRESHOLD) / len(pixels)
+
+
+def _trim_to_the_animation(frames: list[_Frame]) -> list[_Frame]:
+    """Rotate to the start of the animation and drop a long static tail.
+
+    An exported logo animation often does not begin where a splash wants to.
+    The supplied artwork holds the *finished* logo for 2.24s, then blanks,
+    then animates in -- so playing it from frame 0 shows the punchline first
+    and only then the build-up, which is what it looked like on screen.
+
+    Rather than hardcoding an index for this one file, start at the emptiest
+    frame: a logo that animates in has to pass through its own least-drawn
+    moment on the way, and that is where its build-up begins. Then trim any
+    static tail to a short hold, so the splash ends on the finished mark
+    instead of sitting on it.
+
+    A gif that is already in the right order has its emptiest frame at or
+    near the start, so this leaves it alone.
+    """
+    if len(frames) < 3:
+        return frames
+
+    inks = [_ink(frame.image) for frame in frames]
+    start = min(range(len(frames)), key=lambda i: inks[i])
+    rotated = frames[start:] + frames[:start]
+    rotated_inks = inks[start:] + inks[:start]
+
+    # Walk back over frames that look the same as the last one and keep only
+    # HOLD_MS of them, so a two-second freeze on the finished logo does not
+    # get replayed at the end.
+    final = rotated_inks[-1]
+    tail = 0
+    while (
+        tail < len(rotated) - 1
+        and abs(rotated_inks[-1 - tail] - final) < _STATIC_TOLERANCE
+    ):
+        tail += 1
+
+    held_ms = 0
+    keep = len(rotated) - tail
+    for frame in rotated[keep:]:
+        if held_ms >= _HOLD_MS:
+            break
+        held_ms += frame.duration_ms
+        keep += 1
+
+    return rotated[:keep]
