@@ -5,7 +5,7 @@
 
 ![S.TFU in action](docs/demo.gif)
 
-*(Recording pending — the owner's own capture, `Win+D` and all, goes at `docs/demo.gif`. Until then, here's the live meter and overlay captured straight from the running app — not a screen recording:)*
+*The live meter and the overlay, rendered by the app itself rather than screen-recorded:*
 
 ![The live meter and overlay, captured from the app](docs/demo-ui.gif)
 
