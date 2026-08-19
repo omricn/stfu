@@ -46,6 +46,9 @@ Two more things below are still true with a single interpreter:
 
 from __future__ import annotations
 
+import atexit
+import faulthandler
+import io
 import logging
 import os
 import shlex
@@ -62,7 +65,14 @@ from stfu.actions import ActionRegistry
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource
 from stfu.calibrationui import CalibrationDialog
-from stfu.config import Config, data_dir, load_config, reset_config, save_config
+from stfu.config import (
+    Config,
+    config_path,
+    data_dir,
+    load_config,
+    reset_config,
+    save_config,
+)
 from stfu.engine import Engine
 from stfu.firstrun import needs_setup
 from stfu.firstrunui import FirstRunWizard
@@ -90,6 +100,7 @@ from stfu.winapi import RealWinApi
 
 log = logging.getLogger(__name__)
 
+FIRST_LAUNCH_NOTICE_DELAY_MS = 3000
 PUMP_INTERVAL_MS = 50
 MIC_POLL_SECONDS = 5.0
 # ~0.5s at the 20ms frame size -- often enough to notice a vanished device
@@ -405,8 +416,9 @@ class App:
     of the capture and tray threads plus the hidden Tk root this object's
     run() occupies."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, *, just_set_up: bool = False) -> None:
         self.config = config
+        self._just_set_up = just_set_up
         self.bridge = UiBridge()
         self.logstore = LogStore(data_dir() / "events.jsonl")
         # Windows are not built with a master here -- run() has not created
@@ -466,7 +478,14 @@ class App:
             log.exception("could not show the launch splash; continuing without it")
 
         self.root.after(PUMP_INTERVAL_MS, self._pump)
+        if self._just_set_up:
+            # Delayed, not immediate: pystray files the icon with the shell
+            # from its own thread, and a notification raised before that has
+            # happened is dropped.
+            self.root.after(FIRST_LAUNCH_NOTICE_DELAY_MS, self._announce_running)
+        log.info("entering the main event loop")
         self.root.mainloop()
+        log.info("the main event loop returned; shutting down")
 
         # mainloop() only returns once the hidden root has been destroyed
         # (see _request_exit). From here nothing is nested inside a
@@ -491,6 +510,21 @@ class App:
             log.warning("tray thread did not stop within %ss", SHUTDOWN_JOIN_TIMEOUT_S)
 
         return 0
+
+    def _announce_running(self) -> None:
+        """Tell the user the app is up, right after first-run setup.
+
+        Setup finished, the splash played, and the user reported that the app
+        "did not open" -- it had, and was listening the whole time. There is
+        no main window by design, and Windows had tucked the new tray icon
+        behind the overflow chevron, so a healthy start and a crash looked
+        identical.
+        """
+        self.tray.announce(
+            "S.TFU is running",
+            "Listening in the background. Find me in the tray -- click the "
+            "^ arrow by the clock if you cannot see the icon.",
+        )
 
     def _pump(self) -> None:
         # Reschedule before draining the queue -- see the module docstring.
@@ -675,6 +709,77 @@ def _configure_logging() -> None:
     )
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    _catch_silent_deaths(handler)
+
+
+def _catch_silent_deaths(handler: logging.Handler) -> None:
+    """Make every way this process can die leave a trace in app.log.
+
+    A windowed exe has no stderr. Python's default hooks write there, so an
+    unhandled exception on the main thread, a crash in a worker thread, and a
+    native fault inside PortAudio all look identical from the outside: the
+    window vanishes and the log simply stops. That is exactly what happened
+    after first-run setup -- the last line written was a routine INFO, and
+    there was no way to tell whether the interpreter had raised, segfaulted,
+    or exited cleanly.
+
+    faulthandler covers the native case (it writes a C-level traceback to the
+    same file), the two excepthooks cover the Python cases, and the atexit
+    hook distinguishes a clean exit from all of them by leaving a line that
+    only an orderly shutdown can produce.
+    """
+    stream = getattr(handler, "stream", None)
+    if stream is not None:
+        try:
+            faulthandler.enable(file=stream, all_threads=True)
+        except (AttributeError, io.UnsupportedOperation, ValueError, OSError):
+            # A handler whose stream cannot be given a real file descriptor.
+            # The Python-level hooks below are the ones that matter most.
+            log.debug("faulthandler could not attach to the log file")
+
+    def on_uncaught(exc_type, exc, tb) -> None:
+        log.critical("unhandled exception on the main thread", exc_info=(exc_type, exc, tb))
+
+    def on_thread_uncaught(args) -> None:
+        log.critical(
+            "unhandled exception in thread %r",
+            getattr(args.thread, "name", "?"),
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.excepthook = on_uncaught
+    threading.excepthook = on_thread_uncaught
+    atexit.register(lambda: log.info("S.TFU exiting normally"))
+
+
+def _save_setup_result(config: Config) -> None:
+    r"""Persist the wizard's answers, and prove on disk that it worked.
+
+    Setup completed, the line logged immediately after this save ran, and yet
+    %LOCALAPPDATA%\STFU\config.json still carried the previous day's mtime
+    with no .bak beside it -- so the app came back up asking to be set up all
+    over again. A bare save_config() call cannot tell you which of those two
+    stories is true. Logging the resolved path and the file's size and mtime
+    straight after the write does, and it costs one stat().
+    """
+    path = config_path()
+    try:
+        save_config(config)
+    except OSError:
+        log.exception("could not save the setup result to %s", path)
+        raise
+
+    try:
+        stat = path.stat()
+        log.info(
+            "saved setup to %s (%d bytes, mtime %s, device %r)",
+            path,
+            stat.st_size,
+            datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+            config.device_name,
+        )
+    except OSError:
+        log.error("save_config(%s) returned but the file is not there", path)
 
 
 def main() -> int:
@@ -686,7 +791,15 @@ def main() -> int:
         return 0
 
     try:
+        did_setup = False
         config = load_config()
+        log.info(
+            "loaded config from %s (device %r, threshold %s dBFS, setup needed: %s)",
+            config_path(),
+            config.device_name,
+            config.spike_threshold_dbfs,
+            needs_setup(config),
+        )
         if needs_setup(config):
             # Shown before the wizard's own Tk() exists at all -- see
             # _show_splash_before_wizard's docstring for why this is the one
@@ -697,13 +810,14 @@ def main() -> int:
                 log.info("first-run setup was cancelled; exiting without saving")
                 return 0
             config = result
-            save_config(config)
+            _save_setup_result(config)
 
+            did_setup = True
             seeded = seed_user_data(data_dir())
             log.info("seeded %d default clips and pictures", seeded)
 
         _apply_autostart(config)
 
-        return App(config).run()
+        return App(config, just_set_up=did_setup).run()
     finally:
         instance.release()

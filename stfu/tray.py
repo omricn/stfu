@@ -120,6 +120,24 @@ class Tray:
     def stop(self) -> None:
         self.icon.stop()
 
+    def announce(self, title: str, message: str) -> None:
+        """Raise a shell notification from the tray icon.
+
+        S.TFU has no main window on purpose, and Windows files a brand-new
+        tray icon behind the taskbar's overflow chevron rather than showing
+        it. A first launch therefore looks exactly like a failed one: the
+        splash plays, fades, and nothing visible is left. A notification is
+        the one thing that surfaces without a window.
+
+        Best effort by design -- notifications are a shell courtesy that a
+        user, a group policy, or Focus Assist can switch off, and none of
+        those is a reason to stop monitoring.
+        """
+        try:
+            self.icon.notify(message, title)
+        except Exception:
+            log.debug("could not show the tray notification", exc_info=True)
+
     def set_state(self, state: str) -> None:
         """Update the icon colour and tooltip. Safe from any thread: pystray's
         Windows backend talks to the shell via the icon's own window handle,
