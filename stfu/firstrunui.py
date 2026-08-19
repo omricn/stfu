@@ -13,6 +13,7 @@ by the same token, the one screen in this app that cannot simply call
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -26,6 +27,8 @@ from stfu.config import SAMPLE_RATE, Config, data_dir, save_config
 from stfu.firstrun import STEPS, FirstRunFlow
 
 log = logging.getLogger(__name__)
+
+_UI_PUMP_MS = 50  # how often the main thread drains queued UI work
 
 SAMPLE_SECONDS = {"quiet": 10, "speech": 10, "yell": 5}
 FRAMES_PER_SECOND = 50
@@ -62,6 +65,23 @@ BODIES = {
 }
 
 
+def _guarded(fn):
+    """Wrap a thread body so a crash is logged instead of vanishing.
+
+    threading.excepthook writes to stderr, which a windowed exe does not have.
+    A calibration thread that died on its first line therefore looked exactly
+    like a Start button that did nothing.
+    """
+
+    def run() -> None:
+        try:
+            fn()
+        except Exception:
+            log.exception("the calibration thread failed")
+
+    return run
+
+
 class FirstRunWizard:
     """One window whose body is replaced as the flow advances."""
 
@@ -75,6 +95,8 @@ class FirstRunWizard:
         self._cancelled = False
         self._render_token = 0
         self._cancel = threading.Event()
+        self._ui_queue: queue.Queue = queue.Queue()
+        self._pump_id = None
         self._mark_photo: ImageTk.PhotoImage | None = None
         self._dots: list[int] = []
         self._dots_canvas: tk.Canvas | None = None
@@ -88,6 +110,9 @@ class FirstRunWizard:
         self.root.title("S.TFU setup")
         self.root.geometry("640x480")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        # Drains work queued by the calibration thread. Started here rather
+        # than per-step so no step can forget it and appear to hang.
+        self._pump_ui()
 
         header = tk.Frame(self.root, bg=theme.INK)
         header.pack(fill="x", padx=24, pady=(20, 4))
@@ -242,15 +267,31 @@ class FirstRunWizard:
         mainloop thread -- right up until the widget has been destroyed, at
         which point they raise on a thread whose traceback nobody sees.
         """
+        # NOT root.after(). Tk's after() calls createcommand, which raises
+        # "main thread is not in main loop" when called off the main thread --
+        # so the very helper meant to make cross-thread updates safe killed the
+        # calibration thread on its first call, silently, and Start appeared to
+        # do nothing. Queue it instead and let the main thread drain it, which
+        # is what uibridge.py does for the rest of the app.
+        self._ui_queue.put((token, fn))
+
+    def _pump_ui(self) -> None:
+        """Drain queued UI work. Runs on the main thread, on a Tk timer."""
         root = self.root
         if root is None:
             return
-
-        def apply() -> None:
-            if self._render_token == token:
+        while True:
+            try:
+                token, fn = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            if token != self._render_token:
+                continue  # its step has already been replaced
+            try:
                 fn()
-
-        root.after(0, apply)
+            except Exception:
+                log.exception("a queued wizard update failed")
+        self._pump_id = root.after(_UI_PUMP_MS, self._pump_ui)
 
     def _label(self, text: str, **kwargs) -> tk.Label:
         """A body label pre-filled with the dark theme's colours -- classic
@@ -391,7 +432,7 @@ class FirstRunWizard:
             self._body,
             text="Start",
             command=lambda: threading.Thread(
-                target=run_calibration, daemon=True
+                target=_guarded(run_calibration), daemon=True
             ).start(),
         ).pack()
 
