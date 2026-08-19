@@ -47,6 +47,7 @@ Two more things below are still true with a single interpreter:
 from __future__ import annotations
 
 import logging
+import os
 import shlex
 import subprocess
 import sys
@@ -271,7 +272,44 @@ def _relaunch_process() -> None:
     """
     command = autostart.executable_path()
     args = [command] if getattr(sys, "frozen", False) else shlex.split(command)
-    subprocess.Popen(args)
+
+    creationflags = 0
+    if sys.platform == "win32":
+        # Detach: the child must outlive this process, which is about to exit.
+        creationflags = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+
+    subprocess.Popen(
+        args,
+        env=_child_environment(os.environ),
+        close_fds=True,
+        creationflags=creationflags,
+    )
+
+
+# PyInstaller records where a one-file build unpacked itself. Names have
+# changed across versions, so match the prefix as well as the older exact name.
+_PYINSTALLER_ENV_PREFIX = "_PYI"
+_PYINSTALLER_ENV_NAMES = frozenset({"_MEIPASS2"})
+
+
+def _child_environment(env) -> dict:
+    """The current environment with PyInstaller's bootstrap variables removed.
+
+    A frozen one-file build unpacks itself into a temp _MEI directory and
+    records that path in the environment. A child that inherits those looks
+    for its runtime in the *parent's* directory -- which the parent deletes
+    as it exits, so the child dies with "Can't find a usable init.tcl"
+    before it can draw anything. Stripping them makes the child unpack its
+    own copy, which is what a relaunch needs.
+    """
+    return {
+        key: value
+        for key, value in env.items()
+        if not key.startswith(_PYINSTALLER_ENV_PREFIX)
+        and key not in _PYINSTALLER_ENV_NAMES
+    }
 
 
 def perform_start_over(
