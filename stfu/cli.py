@@ -21,6 +21,7 @@ from stfu.app import create_hidden_root
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource, list_input_devices
 from stfu.config import config_path, data_dir, load_config, save_config
+from stfu.detector import TriggerEvent
 from stfu.engine import Engine
 from stfu.images import ImageLibrary
 from stfu.levels import dbfs_from_rms, meter_from_dbfs
@@ -33,7 +34,10 @@ from stfu.overlay import (
     FourClickOverlay,
 )
 from stfu.sounds import ClipLibrary, MiniaudioPlayer, SoundBite
+from stfu.strikes import ACTION_DESKTOP_DROP, ACTION_OVERLAY
 from stfu.winapi import RealWinApi
+
+DEMO_WAIT_SECONDS = 5.0
 
 
 class PrintingActions:
@@ -174,6 +178,50 @@ def cmd_monitor(args) -> int:
     return 0
 
 
+def cmd_demo(args) -> int:
+    """Fire one real trigger with no microphone involved, for screen recording.
+
+    Not a user-facing feature -- see the README's developer section, which is
+    the only place this is documented. Hidden from `--help` (see main(), which
+    registers it with `help=argparse.SUPPRESS`) so it stays out of the way of
+    the CLI surface someone tuning detection actually needs.
+
+    Waits `--wait` seconds (default DEMO_WAIT_SECONDS) so the operator can
+    start recording and switch to a normal-looking desktop, then dispatches
+    through the real ActionRegistry built by build_real_actions() -- the same
+    overlay/message windows, the same sound, the same Win+D -- exactly as a
+    genuine yell would, just without needing anyone to actually yell on cue.
+    `--desktop-drop` fires the fullscreen message instead of the 4-click
+    overlay, so both beats can be recorded separately.
+    """
+    config = load_config()
+    root = create_hidden_root()
+    actions = build_real_actions(config, root)
+
+    action_name = ACTION_DESKTOP_DROP if args.desktop_drop else ACTION_OVERLAY
+    print(f"stfu demo: firing {action_name} in {args.wait:.0f}s -- start recording now.")
+    try:
+        time.sleep(args.wait)
+    except KeyboardInterrupt:
+        print("\ncancelled")
+        root.destroy()
+        return 0
+
+    event = TriggerEvent(
+        kind="spike",
+        level_dbfs=-4.0,
+        threshold_dbfs=config.spike_threshold_dbfs,
+        at=time.monotonic(),
+    )
+    # Blocks until the window is dismissed: build_real_actions() wraps each
+    # window in _WaitingWindow, the same root.wait_window() convention
+    # `monitor --real` already relies on (see _WaitingWindow's docstring).
+    actions.fire(action_name, event)
+
+    root.destroy()
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="stfu")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -193,6 +241,21 @@ def main(argv=None) -> int:
         "--real", action="store_true", help="perform real actions, not just print them"
     )
     monitor.set_defaults(func=cmd_monitor)
+
+    # Undocumented recording aid -- see cmd_demo()'s docstring. help=SUPPRESS
+    # alone still prints a literal "==SUPPRESS==" line in --help's subcommand
+    # list under this Python's argparse, so the pseudo-action it creates is
+    # dropped from subparsers._choices_actions below too -- that list is only
+    # ever read by the help formatter; subparsers.choices (which parse_args
+    # actually dispatches through) is untouched, so `stfu demo ...` still
+    # works, it just never appears in `stfu --help`.
+    demo = subparsers.add_parser("demo", help=argparse.SUPPRESS)
+    demo.add_argument("--wait", type=float, default=DEMO_WAIT_SECONDS, help=argparse.SUPPRESS)
+    demo.add_argument("--desktop-drop", action="store_true", help=argparse.SUPPRESS)
+    demo.set_defaults(func=cmd_demo)
+    subparsers._choices_actions = [
+        a for a in subparsers._choices_actions if a.dest != "demo"
+    ]
 
     args = parser.parse_args(argv)
     return args.func(args)

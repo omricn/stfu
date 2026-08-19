@@ -179,6 +179,13 @@ There is also a headless CLI for tuning without the GUI:
 
 `monitor` prints what it *would* do; add `--real` to actually do it.
 
+There is also an undocumented `demo` command (`python -m stfu.cli demo`, not
+shown in `--help`) that waits a few seconds and then fires one real trigger —
+the actual overlay or, with `--desktop-drop`, the actual fullscreen message —
+through the real `ActionRegistry`, with no microphone involved. It exists so a
+demo clip doesn't require anyone to actually yell on cue; see its docstring in
+`stfu/cli.py`.
+
 ---
 
 ## Known limitations
