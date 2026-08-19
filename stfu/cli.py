@@ -25,7 +25,13 @@ from stfu.engine import Engine
 from stfu.images import ImageLibrary
 from stfu.levels import dbfs_from_rms, meter_from_dbfs
 from stfu.logstore import LogStore
-from stfu.overlay import ClickTracker, DesktopMessage, FourClickOverlay
+from stfu.overlay import (
+    DESKTOP_MESSAGE,
+    OVERLAY_MESSAGE,
+    ClickTracker,
+    DesktopMessage,
+    FourClickOverlay,
+)
 from stfu.sounds import ClipLibrary, MiniaudioPlayer, SoundBite
 from stfu.winapi import RealWinApi
 
@@ -107,14 +113,14 @@ def build_real_actions(config, root: tk.Misc) -> ActionRegistry:
             FourClickOverlay(
                 root,
                 ClickTracker(config.overlay_clicks_required),
-                "Volume check",
+                OVERLAY_MESSAGE,
                 pictures.pick(),
             ),
         ),
         message_factory=lambda: _WaitingWindow(
             root,
             DesktopMessage(
-                root, "Too loud", config.desktop_message_seconds, pictures.pick()
+                root, DESKTOP_MESSAGE, config.desktop_message_seconds, pictures.pick()
             ),
         ),
     )

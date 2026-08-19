@@ -68,7 +68,13 @@ from stfu.levels import dbfs_from_rms
 from stfu.logstore import LogStore
 from stfu.meter import MeterState
 from stfu.meterui import MeterWindow
-from stfu.overlay import ClickTracker, DesktopMessage, FourClickOverlay
+from stfu.overlay import (
+    DESKTOP_MESSAGE,
+    OVERLAY_MESSAGE,
+    ClickTracker,
+    DesktopMessage,
+    FourClickOverlay,
+)
 from stfu import pinprompt
 from stfu.reportui import ReportWindow
 from stfu.settingsui import SettingsWindow
@@ -211,14 +217,17 @@ def _build_actions(
         lambda: FourClickOverlay(
             get_master(),
             ClickTracker(config.overlay_clicks_required),
-            "Volume check",
+            OVERLAY_MESSAGE,
             pictures.pick(),
         ),
     )
     message_window = _BridgedWindow(
         bridge,
         lambda: DesktopMessage(
-            get_master(), "Too loud", config.desktop_message_seconds, pictures.pick()
+            get_master(),
+            DESKTOP_MESSAGE,
+            config.desktop_message_seconds,
+            pictures.pick(),
         ),
     )
 

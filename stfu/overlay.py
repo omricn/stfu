@@ -88,6 +88,12 @@ BUTTON_SIZE = (140, 48)
 IMAGE_FRACTION = (0.5, 0.40)  # of screen width, height
 MARK_SIZE = 120
 
+# The two trigger messages, single-sourced here so app.py and cli.py -- the
+# only two callers that build these windows -- cannot drift apart the way
+# "Volume check"/"Too loud" and any future rewording of it otherwise could.
+OVERLAY_MESSAGE = "Shhhhhh!"
+DESKTOP_MESSAGE = "Silence!"
+
 
 def _fullscreen_root(master: tk.Misc, fraction: float | None) -> tk.Toplevel:
     """A borderless, always-on-top, centred window.
