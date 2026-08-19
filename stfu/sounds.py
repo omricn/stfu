@@ -69,6 +69,21 @@ class Player(Protocol):
     def stop(self) -> None: ...
 
 
+def preload() -> None:
+    """Import the playback stack now, on the main thread.
+
+    play() is reached from the capture thread the first time a yell fires,
+    and these three imports would happen there -- unpacking modules from the
+    PyInstaller archive on a background thread, which is what killed the
+    process outright when the tray icon did the same thing (see
+    tray.preload_image_codecs). A first strike is the worst possible moment
+    to find that out.
+    """
+    import miniaudio  # noqa: F401 - imported for its side effect
+    import numpy  # noqa: F401 - imported for its side effect
+    import sounddevice  # noqa: F401 - imported for its side effect
+
+
 class MiniaudioPlayer:
     """Decodes with miniaudio, plays through sounddevice. Non-blocking.
 

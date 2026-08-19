@@ -15,6 +15,7 @@ looks fine until the moment it doesn't.
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 from typing import Callable
@@ -61,6 +62,40 @@ def _icon_image(colour: str) -> Image.Image:
     return image
 
 
+def preload_image_codecs() -> None:
+    r"""Import every PIL codec now, on the main thread, before any thread runs.
+
+    Pillow registers its plugins lazily: the ICO writer is not loaded until
+    the first save() that needs it. pystray needs exactly that writer the
+    moment it makes the tray icon visible -- and it does so from the tray
+    thread. Frozen, that lazy import is a PyInstaller archive extraction, and
+    running one on a background thread while the collector is walking the
+    heap killed the process outright:
+
+        Windows fatal exception: code 0x80000003
+          Garbage-collecting
+          File "pyimod01_archive.py", line 136 in extract
+          File "PIL\Image.py", line 490 in init
+          File "pystray\_win32.py", line 359 in _assert_icon_handle
+
+    No traceback, no tray icon, no app -- and because it lands right after
+    first-run setup, it reads as "setup finished and then nothing opened".
+
+    Doing the work here costs a few milliseconds once and leaves the tray
+    thread with no imports left to perform. The throwaway save is the point:
+    Image.init() alone registers the plugins, but only an actual ICO write
+    pulls in everything that write touches.
+    """
+    Image.init()
+    try:
+        _icon_image(STATE_COLOURS[STATE_LISTENING]).save(io.BytesIO(), "ICO")
+    except Exception:
+        # A codec that cannot round-trip here would fail on the tray thread
+        # too, but there it takes the process with it. Log and carry on: a
+        # missing tray icon is survivable, a dead app is not.
+        log.exception("could not preload the tray icon codec")
+
+
 class Tray:
     """Wraps ``pystray.Icon``. Runs on its own thread; every window a menu
     item opens is handed to the UiBridge so it is actually built on the Tk
@@ -86,6 +121,9 @@ class Tray:
         # own, and only app.py has that root to hand over.
         self._gate = gate
         self._state = STATE_LISTENING
+        # Must happen before self.icon exists, and therefore before anything
+        # can start the tray thread -- see preload_image_codecs.
+        preload_image_codecs()
 
         self.icon = pystray.Icon(
             "stfu",

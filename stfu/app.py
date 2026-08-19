@@ -60,7 +60,7 @@ import tkinter as tk
 from datetime import datetime
 from typing import Callable
 
-from stfu import appicon, autostart
+from stfu import appicon, audio, autostart, sounds
 from stfu.actions import ActionRegistry
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource
@@ -94,7 +94,13 @@ from stfu.reportui import ReportWindow
 from stfu.settingsui import SettingsWindow
 from stfu.sounds import RUNG_FIRST, RUNG_REPEAT, ClipLibrary, MiniaudioPlayer, SoundBite
 from stfu.splashui import SplashWindow
-from stfu.tray import STATE_LISTENING, STATE_NO_MIC, STATE_PAUSED, Tray
+from stfu.tray import (
+    STATE_LISTENING,
+    STATE_NO_MIC,
+    STATE_PAUSED,
+    Tray,
+    preload_image_codecs,
+)
 from stfu.uibridge import UiBridge
 from stfu.winapi import RealWinApi
 
@@ -451,6 +457,13 @@ class App:
         self._tray_thread: threading.Thread | None = None
 
     def run(self) -> int:
+        # Before any thread exists: both of these pull modules out of the
+        # PyInstaller archive on first use, and doing that off the main
+        # thread is what killed the process right after first-run setup.
+        audio.preload()
+        sounds.preload()
+        preload_image_codecs()
+
         self._capture_thread = threading.Thread(
             target=self._capture_loop, name="stfu-capture", daemon=True
         )

@@ -61,6 +61,22 @@ class AudioSource(Protocol):
     def frames(self) -> Iterator[float]: ...
 
 
+def preload() -> None:
+    """Import PortAudio now, on the main thread.
+
+    Same hazard as the tray icon's PIL codecs (see tray.preload_image_codecs):
+    `sounddevice` is imported lazily inside the functions below, and the
+    capture thread is the first thing to call one. Frozen, that lazy import
+    is a PyInstaller archive extraction running on a background thread, which
+    is exactly what took the process down with a bare
+
+        Windows fatal exception: code 0x80000003
+
+    and no traceback. Import it where a failure is still a normal exception.
+    """
+    import sounddevice  # noqa: F401 - imported for its side effect
+
+
 def list_input_devices() -> list[InputDevice]:
     """Every device with at least one input channel."""
     import sounddevice as sd
