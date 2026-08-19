@@ -45,10 +45,10 @@ def make_clip(tmp_path, rung, name="a.wav"):
     (folder / name).write_bytes(b"not really audio")
 
 
-def test_the_overlay_action_minimises_before_showing(parts):
+def test_the_overlay_action_shows_the_desktop_before_showing(parts):
     registry, winapi, _, shown = parts
     registry.fire(ACTION_OVERLAY, event())
-    assert winapi.calls == ["minimize_foreground"]
+    assert winapi.calls == ["show_desktop"]
     assert shown == ["overlay"]
 
 
@@ -97,12 +97,12 @@ def test_the_usb_light_action_is_registered_but_does_nothing(parts):
     assert shown == []
 
 
-def test_the_overlay_action_minimises_then_sounds_then_shows(tmp_path):
+def test_the_overlay_action_drops_then_sounds_then_shows(tmp_path):
     # Both orderings are load-bearing. show() blocks until the overlay is
     # dismissed, so a clip started after it would not play until the user had
-    # already clicked through; and a window shown before the minimise would be
-    # hidden behind a fullscreen game. Three separate logs cannot prove this,
-    # so everything records into one.
+    # already clicked through; and a window shown before the desktop drop
+    # would be hidden behind a fullscreen game. Three separate logs cannot
+    # prove this, so everything records into one.
     order = []
     make_clip(tmp_path, "first")
 
@@ -132,7 +132,7 @@ def test_the_overlay_action_minimises_then_sounds_then_shows(tmp_path):
         message_factory=lambda: FakeWindow(order, "message"),
     )
     registry.fire(ACTION_OVERLAY, event())
-    assert order == ["minimize", "sound", "overlay"]
+    assert order == ["desktop", "sound", "overlay"]
 
 
 def test_the_desktop_action_drops_then_sounds_then_shows(tmp_path):
@@ -190,7 +190,7 @@ def test_sound_can_be_muted(tmp_path):
     assert registry.fire(ACTION_OVERLAY, event()) is None
     assert bite.player.played == []
     assert shown == ["overlay"]
-    assert winapi.calls == ["minimize_foreground"]
+    assert winapi.calls == ["show_desktop"]
 
 
 def test_popups_can_be_turned_off(tmp_path):
@@ -238,4 +238,4 @@ def test_everything_on_is_the_default(tmp_path):
     registry, winapi, bite = registry_with(tmp_path, shown)
     assert registry.fire(ACTION_OVERLAY, event()) == 2.0
     assert shown == ["overlay"]
-    assert winapi.calls == ["minimize_foreground"]
+    assert winapi.calls == ["show_desktop"]

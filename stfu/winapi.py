@@ -34,6 +34,11 @@ class RealWinApi:
         Returns False when there is no foreground window, which happens on a
         locked or freshly booted desktop. Callers treat that as "nothing to
         minimise" rather than an error.
+
+        Not currently called by ActionRegistry -- both actions use
+        show_desktop() instead, since it clears every monitor rather than
+        only the one foreground window (see actions.py's _overlay()). Kept,
+        with its tests, as a correct and independently useful primitive.
         """
         user32 = ctypes.windll.user32
         hwnd = user32.GetForegroundWindow()

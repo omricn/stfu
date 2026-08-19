@@ -76,11 +76,18 @@ class ActionRegistry:
         return self.sound.play(rung)
 
     def _overlay(self, event) -> float | None:
-        # The two guards are separate so the minimise-sound-window ordering is
-        # preserved when popups are on: the game must be left before the window
-        # appears, and the sound must start before show() blocks.
+        # Win+D, not minimize_foreground(): the overlay must be seen even on
+        # a multi-monitor setup, and minimising only the one foreground
+        # window left every other screen showing whatever was already on it
+        # -- trivially ignorable by just looking at the other display. Win+D
+        # clears every monitor at once, the same call _desktop_drop() already
+        # makes below.
+        #
+        # The two guards are separate so the drop-sound-window ordering is
+        # preserved when popups are on: the desktop must be shown before the
+        # window appears, and the sound must start before show() blocks.
         if self.config.popups_enabled:
-            self.winapi.minimize_foreground()
+            self.winapi.show_desktop()
         seconds = self._play(RUNG_FIRST)
         if self.config.popups_enabled:
             self._overlay_factory().show()
