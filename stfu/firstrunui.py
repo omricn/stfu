@@ -378,8 +378,7 @@ class FirstRunWizard:
                 self._ui(
                     token,
                     lambda: result_label.configure(
-                        text="Could not open that microphone.
-"
+                        text="Could not open that microphone.\n"
                         "Press Back and choose a different one -- some devices "
                         "are listed by Windows but refuse to open, or are held "
                         "by another program."
