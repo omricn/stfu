@@ -179,6 +179,29 @@ def find_device(
     return None
 
 
+def candidate_devices(
+    name: str, hostapi: str, devices: list[InputDevice] | None = None
+) -> list[InputDevice]:
+    """Every device matching `name`, best host API first.
+
+    A device that enumerates is not a device that opens. The same microphone
+    is usually reachable through several host APIs, and when the pinned one
+    refuses, another commonly works -- so this returns all of them in
+    preference order rather than one, and the caller tries each in turn.
+    """
+    if not name:
+        return []
+    if devices is None:
+        devices = list_input_devices()
+
+    matches = [device for device in devices if device.name == name]
+    matches.sort(key=lambda device: _hostapi_rank(device.hostapi))
+    # The explicitly pinned pairing goes first, if it is still present.
+    exact = [d for d in matches if d.hostapi == hostapi]
+    rest = [d for d in matches if d.hostapi != hostapi]
+    return exact + rest
+
+
 class FakeSource:
     """Scripted source for tests. Yields the frame values it was constructed
     with, then stops."""
@@ -247,23 +270,49 @@ class MicSource:
         """
         import sounddevice as sd
 
-        device = find_device(self.device_name, self.device_hostapi)
-        if device is None:
+        candidates = candidate_devices(self.device_name, self.device_hostapi)
+        if not candidates:
+            log.warning("no device matches %r", self.device_name)
             return False
+
         self._stop.clear()
-        samplerate = float(sd.query_devices(device.index)["default_samplerate"])
-        blocksize = frame_samples_for_rate(samplerate, FRAME_MS)
-        self._stream = sd.InputStream(
-            device=device.index,
-            channels=1,
-            samplerate=samplerate,
-            blocksize=blocksize,
-            dtype="float32",
-            callback=self._callback,
-        )
-        self._stream.start()
-        self.samplerate = samplerate
-        return True
+        for device in candidates:
+            try:
+                samplerate = float(
+                    sd.query_devices(device.index)["default_samplerate"]
+                )
+                blocksize = frame_samples_for_rate(samplerate, FRAME_MS)
+                stream = sd.InputStream(
+                    device=device.index,
+                    channels=1,
+                    samplerate=samplerate,
+                    blocksize=blocksize,
+                    dtype="float32",
+                    callback=self._callback,
+                )
+                stream.start()
+            except Exception:
+                # Opening a capture device fails for reasons that have nothing
+                # to do with this app: another program holding it exclusively,
+                # or a host API that advertises a device it cannot actually
+                # open. WDM-KS in particular routinely refuses with
+                # "Unanticipated host error", which used to escape as an
+                # unhandled exception and kill the calling thread outright.
+                log.warning(
+                    "could not open %r on %s; trying the next host API",
+                    device.name,
+                    device.hostapi,
+                    exc_info=True,
+                )
+                continue
+
+            self._stream = stream
+            self.samplerate = samplerate
+            log.info("capturing from %r on %s", device.name, device.hostapi)
+            return True
+
+        log.error("every host API failed for %r", self.device_name)
+        return False
 
     def close(self) -> None:
         self._stop.set()
