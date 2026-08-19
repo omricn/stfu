@@ -1,7 +1,7 @@
 # S.TFU
 
-[![CI](https://github.com/omricn/stfu-public/actions/workflows/ci.yml/badge.svg)](https://github.com/omricn/stfu-public/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/omricn/stfu-public?display_name=tag)](../../releases)
+[![CI](https://github.com/omricn/stfu/actions/workflows/ci.yml/badge.svg)](https://github.com/omricn/stfu/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/omricn/stfu?display_name=tag)](../../releases)
 
 ![S.TFU in action](docs/demo.gif)
 
@@ -79,8 +79,8 @@ A copy handed over on a USB stick or a network share never gets tagged in the fi
 **Option B — build it yourself.**
 
 ```bash
-git clone https://github.com/omricn/stfu-public.git
-cd stfu-public
+git clone https://github.com/omricn/stfu.git
+cd stfu
 py -3.12 -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev]"
 .venv/Scripts/python -m pytest

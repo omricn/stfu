@@ -92,7 +92,7 @@ jobs:
       #   with:
       #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
       #     organization-id: "<from SignPath>"
-      #     project-slug: "stfu-public"
+      #     project-slug: "stfu"
       #     signing-policy-slug: "release-signing"
       #     github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
       #     wait-for-completion: true
