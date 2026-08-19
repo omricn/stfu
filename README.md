@@ -1,12 +1,25 @@
 # S.TFU
 
 [![CI](https://github.com/omricn/stfu-public/actions/workflows/ci.yml/badge.svg)](https://github.com/omricn/stfu-public/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/omricn/stfu-public?display_name=tag)](../../releases)
+
+![S.TFU in action](docs/demo.gif)
+
+*(Recording pending — the owner's own capture, `Win+D` and all, goes at `docs/demo.gif`. Until then, here's the live meter and overlay captured straight from the running app — not a screen recording:)*
+
+![The live meter and overlay, captured from the app](docs/demo-ui.gif)
 
 A Windows tray app that listens to a microphone and interrupts you when you yell.
 
 Built for a specific problem: someone gaming with headphones on, quiet for an hour, then suddenly shouting loud enough to wake the house. Detection is tuned for **short spikes**, not sustained volume — the thing that wakes people is the sudden one, not the steady one.
 
 **It is deliberately not subtle, and deliberately not hidden.** It has a tray icon, it announces what it does on first run, and the person being monitored is meant to know it's there.
+
+---
+
+## How it works
+
+It measures how loud the room is in short windows — a few hundredths of a second at a time — many times a second. On first run it asks you to stay quiet, then talk normally, then yell once, and uses that to place a threshold between your voice and your yell. From then on, any window that spikes over that threshold counts as a yell, and it reacts.
 
 ---
 
@@ -24,6 +37,28 @@ Every trigger is logged. A built-in report window shows a chart of when they hap
 ### Why it minimises first
 
 Exclusive-fullscreen games won't reliably let another window draw on top of them. The only way to guarantee the message is actually seen is to leave the game first. This makes the first strike as disruptive as the second — an accepted trade-off, not an oversight.
+
+### A quick look
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/wizard-1-welcome.png" width="260"><br><sub>First-run wizard</sub></td>
+<td align="center"><img src="docs/screenshots/wizard-2-microphone.png" width="260"><br><sub>Picking a microphone</sub></td>
+<td align="center"><img src="docs/screenshots/wizard-3-calibrate.png" width="260"><br><sub>Calibration</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/settings-2-escalation-sound.png" width="260"><br><sub>Settings, grouped into sections</sub></td>
+<td align="center"><img src="docs/screenshots/live-meter.png" width="260"><br><sub>The live meter, over threshold</sub></td>
+<td align="center"><img src="docs/screenshots/overlay-4click.png" width="260"><br><sub>The 4-click overlay</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/desktop-message.png" width="260"><br><sub>The fullscreen message</sub></td>
+<td align="center"><img src="docs/screenshots/report-window.png" width="260"><br><sub>The report window</sub></td>
+<td align="center"><img src="docs/screenshots/settings-1-detection.png" width="260"><br><sub>Settings, detection</sub></td>
+</tr>
+</table>
+
+The 4-click overlay above shows a placeholder picture (mountains and a sun) so the layout isn't a bare gap — **no pictures ship with the app**; that slot is empty until you add your own (see [Sounds and pictures](#sounds-and-pictures)).
 
 ---
 
@@ -161,7 +196,7 @@ stfu/
   ...            first-run wizard, tray, report, settings, packaging
 ```
 
-`levels`, `config`, `detector`, `strikes`, `logstore` and `engine` are pure decision logic with **no audio, UI, or Win32 imports** — a test enforces that mechanically by inspecting their ASTs. That's why the detection logic is testable without a microphone, and it's most of why there are 279 tests.
+`levels`, `config`, `detector`, `strikes`, `logstore` and `engine` are pure decision logic with **no audio, UI, or Win32 imports** — a test enforces that mechanically by inspecting their ASTs. That's why the detection logic is testable without a microphone, and it's most of why there are 437 tests (433 passing, 4 skipped).
 
 See [docs/DESIGN.md](docs/DESIGN.md) for why the design is the way it is — the thresholds, the escalation rules, the failure modes, and the trade-offs that were accepted deliberately.
 
