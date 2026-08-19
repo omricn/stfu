@@ -47,6 +47,9 @@ Two more things below are still true with a single interpreter:
 from __future__ import annotations
 
 import logging
+import shlex
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -58,7 +61,7 @@ from stfu.actions import ActionRegistry
 from stfu.assets import seed_user_data
 from stfu.audio import MicSource
 from stfu.calibrationui import CalibrationDialog
-from stfu.config import Config, data_dir, load_config, save_config
+from stfu.config import Config, data_dir, load_config, reset_config, save_config
 from stfu.engine import Engine
 from stfu.firstrun import needs_setup
 from stfu.firstrunui import FirstRunWizard
@@ -94,6 +97,12 @@ MIC_POLL_SECONDS = 5.0
 AVAILABILITY_CHECK_FRAMES = 25
 PAUSE_MINUTES = 15
 SHUTDOWN_JOIN_TIMEOUT_S = 5.0
+# How long a fresh process will retry for the single-instance mutex before
+# giving up -- see SingleInstance.acquire()'s docstring for the two races
+# this covers (the "Start over" relaunch, and a plain manual relaunch right
+# after closing the app). Generous relative to SHUTDOWN_JOIN_TIMEOUT_S * 2,
+# the worst-case time this process's own teardown can take.
+INSTANCE_ACQUIRE_RETRY_SECONDS = 12.0
 
 
 class DeviceWatch:
@@ -249,6 +258,57 @@ def _apply_autostart(config: Config) -> None:
         autostart.enable(autostart.executable_path())
     else:
         autostart.disable()
+
+
+def _relaunch_process() -> None:
+    """Start a brand-new S.TFU process, frozen or not.
+
+    Reuses autostart.executable_path() rather than a second copy of the same
+    frozen/unfrozen distinction: frozen, it is the exe's own path and needs
+    no further parsing; unfrozen, it is `"<python>" -m stfu` as one quoted
+    string (built for the registry's Run key, which wants exactly that), so
+    it is shlex.split() here to get an argv Popen can execute directly.
+    """
+    command = autostart.executable_path()
+    args = [command] if getattr(sys, "frozen", False) else shlex.split(command)
+    subprocess.Popen(args)
+
+
+def perform_start_over(
+    spawn: Callable[[], None],
+    reset: Callable[[], None],
+    request_exit: Callable[[], None],
+) -> bool:
+    """Orchestrates Settings' "Start over": relaunch first, wipe state
+    second, exit third -- in that order deliberately.
+
+    A relaunch that fails to even start must leave this process running
+    with its state untouched, not exit into nothing with no process left at
+    all -- that is the one way this feature could brick the app. Trying the
+    relaunch before touching anything means a failure here is a no-op: the
+    `except` below returns False without calling `reset` or `request_exit`,
+    so the running app is unaffected and the operator can see it and try
+    again.
+
+    Once the relaunch has actually started, `reset` runs and then
+    `request_exit` while this process is still alive -- the new process
+    will retry the single-instance mutex until this one's own teardown
+    releases it (see SingleInstance.acquire()), so by the time the new
+    process gets far enough to call load_config(), the config this process
+    just deleted is already gone.
+
+    A plain function, not a method, so it can be unit-tested with fake
+    `spawn`/`reset`/`request_exit` callables without a real Tk root, a real
+    subprocess, or a real config file (see tests/test_app_wiring.py).
+    """
+    try:
+        spawn()
+    except Exception:
+        log.exception("could not relaunch for Start over; keeping this process running")
+        return False
+    reset()
+    request_exit()
+    return True
 
 
 def create_hidden_root() -> tk.Tk:
@@ -492,7 +552,7 @@ class App:
         ReportWindow(self.root, self.logstore).show()
 
     def _open_settings(self) -> None:
-        SettingsWindow(self.root, self.config).show()
+        SettingsWindow(self.root, self.config, on_start_over=self._start_over).show()
 
     def _open_meter(self) -> None:
         # Read-only diagnostics (F5): no PIN, and it reads self.meter rather
@@ -535,6 +595,25 @@ class App:
         if self.root is not None:
             self.root.destroy()
 
+    def _start_over(self) -> None:
+        """Settings' "Start over": wipe saved state and relaunch fresh into
+        first-run setup. See perform_start_over() for the ordering that
+        keeps a failed relaunch from bricking the app."""
+        perform_start_over(
+            spawn=_relaunch_process,
+            reset=self._reset_app_state,
+            request_exit=self._request_exit,
+        )
+
+    def _reset_app_state(self) -> None:
+        """Delete the config (the pinned device, the PIN, the calibrated
+        thresholds) and the event log -- never the sound clips or pictures
+        under data_dir(), which are the user's own files, not app state
+        (see settingsui.py's confirmation text, which promises exactly
+        this)."""
+        reset_config()
+        self.logstore.clear()
+
 
 def _configure_logging() -> None:
     r"""Send this app's own log to %LOCALAPPDATA%\STFU\app.log.
@@ -564,7 +643,7 @@ def main() -> int:
     _configure_logging()
     log.info("S.TFU starting")
     instance = SingleInstance()
-    if not instance.acquire():
+    if not instance.acquire(retry_seconds=INSTANCE_ACQUIRE_RETRY_SECONDS):
         log.info("another instance is already running; exiting")
         return 0
 

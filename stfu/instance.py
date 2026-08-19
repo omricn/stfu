@@ -7,7 +7,8 @@ microphone, doubling every trigger and corrupting the strike ladder.
 from __future__ import annotations
 
 import logging
-from typing import Protocol
+import time
+from typing import Callable, Protocol
 
 log = logging.getLogger(__name__)
 
@@ -67,9 +68,36 @@ class SingleInstance:
         self._name = name
         self._acquired = False
 
-    def acquire(self) -> bool:
-        self._acquired = self._lock.take(self._name)
-        return self._acquired
+    def acquire(
+        self,
+        retry_seconds: float = 0.0,
+        poll_interval: float = 0.2,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+        now: Callable[[], float] = time.monotonic,
+    ) -> bool:
+        """Try to take the lock, retrying for up to `retry_seconds` if it is
+        currently held rather than giving up on the very first check.
+
+        Two legitimate races land here. "Start over" (see app.py) spawns a
+        replacement process before this one has released the mutex, so the
+        new process's first attempt is expected to fail; and a plain manual
+        relaunch right after closing the app can hit the same window, since
+        this process's own teardown (joining the capture and tray threads,
+        each with its own timeout) can take a few seconds after the mutex's
+        owning handle is asked to close. Both used to mean "another instance
+        is already running" and a silent exit, even though nothing else was
+        actually still running by the time a user tried again by hand.
+
+        `sleep`/`now` are injectable so tests can drive the retry loop
+        without a real wall-clock wait (see tests/test_instance.py).
+        """
+        deadline = now() + retry_seconds
+        while True:
+            self._acquired = self._lock.take(self._name)
+            if self._acquired or now() >= deadline:
+                return self._acquired
+            sleep(poll_interval)
 
     def release(self) -> None:
         if self._acquired:

@@ -56,6 +56,20 @@ class LogStore:
     def events_for_session(self, session_id: str) -> list[dict]:
         return [e for e in self.read_all() if e.get("session_id") == session_id]
 
+    def clear(self) -> None:
+        """Delete the event log, discarding all history.
+
+        Used by Settings' "Start over" action -- its confirmation names the
+        event log explicitly as one of the things that will be lost, so
+        this makes that true rather than leaving old history to reappear in
+        the report window after a "fresh start". A missing file is not an
+        error: there may be nothing logged yet.
+        """
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def sessions(self) -> list[str]:
         """Distinct session ids, newest first by their earliest timestamp."""
         first_seen: dict[str, str] = {}

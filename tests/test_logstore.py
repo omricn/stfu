@@ -29,6 +29,21 @@ def test_a_supplied_timestamp_is_kept(store):
     assert store.read_all()[0]["ts"] == "2026-08-17T21:43:12"
 
 
+def test_clear_deletes_the_log_file(store):
+    store.append(type="trigger", session_id="s1")
+    assert store.path.exists()
+
+    store.clear()
+
+    assert not store.path.exists()
+    assert store.read_all() == []
+
+
+def test_clear_with_no_log_yet_is_not_an_error(store):
+    store.clear()  # must not raise
+    assert store.read_all() == []
+
+
 def test_reading_a_missing_file_gives_an_empty_list(tmp_path):
     assert LogStore(tmp_path / "nothing.jsonl").read_all() == []
 

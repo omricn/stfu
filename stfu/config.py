@@ -148,6 +148,24 @@ def save_config(cfg: Config, path: Path | None = None) -> None:
     os.replace(tmp, path)
 
 
+def reset_config(path: Path | None = None) -> None:
+    """Delete the saved config and its backup (see save_config's note on why
+    a .bak exists) so the next load_config() returns fresh defaults and
+    needs_setup() sends the app back through first-run setup.
+
+    Used by Settings' "Start over" action. Deliberately narrow: this touches
+    only the two files this module itself writes, never data_dir() as a
+    whole -- sound clips and pictures live there too, and those are the
+    user's own files, not app state (see settingsui.py's confirmation text).
+    """
+    path = Path(path) if path is not None else config_path()
+    for candidate in (path, path.with_suffix(".json.bak")):
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError:
+            log.warning("could not remove %s while resetting", candidate)
+
+
 def hash_pin(pin: str) -> tuple[str, str]:
     """Return (hash_hex, salt_hex) for a PIN."""
     salt = secrets.token_bytes(16)

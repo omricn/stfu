@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from stfu.config import Config, hash_pin, load_config, save_config, verify_pin
+from stfu.config import (
+    Config,
+    hash_pin,
+    load_config,
+    reset_config,
+    save_config,
+    verify_pin,
+)
 
 
 def test_defaults_match_the_spec():
@@ -36,6 +43,45 @@ def test_load_ignores_unknown_keys_from_a_newer_version(tmp_path):
     path.write_text(json.dumps({"cooldown_seconds": 60, "future_option": True}))
     loaded = load_config(path)
     assert loaded.cooldown_seconds == 60
+
+
+def test_reset_deletes_the_config_and_its_backup(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(cooldown_seconds=45), path)
+    save_config(Config(cooldown_seconds=60), path)  # second save creates the .bak
+    assert path.exists()
+    assert path.with_suffix(".json.bak").exists()
+
+    reset_config(path)
+
+    assert not path.exists()
+    assert not path.with_suffix(".json.bak").exists()
+
+
+def test_reset_leaves_a_fresh_load_at_defaults(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(device_name="Headset", cooldown_seconds=45), path)
+
+    reset_config(path)
+
+    assert load_config(path) == Config()
+
+
+def test_reset_with_no_config_present_is_not_an_error(tmp_path):
+    reset_config(tmp_path / "does-not-exist.json")  # must not raise
+
+
+def test_reset_does_not_touch_other_files_in_the_same_directory(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(), path)
+    sounds_dir = tmp_path / "sounds" / "first"
+    sounds_dir.mkdir(parents=True)
+    clip = sounds_dir / "a.wav"
+    clip.write_bytes(b"not really audio")
+
+    reset_config(path)
+
+    assert clip.exists()
 
 
 def test_load_fills_in_keys_missing_from_an_older_version(tmp_path):

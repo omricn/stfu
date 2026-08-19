@@ -144,6 +144,21 @@ def apply(root: tk.Misc) -> ttk.Style:
         background=[("disabled", SURFACE_HI), ("active", "#5951d1")],
         foreground=[("disabled", TEXT_DIM)],
     )
+    # For controls that destroy something -- currently only Settings' "Start
+    # over", which wipes the pinned device, PIN, thresholds, and event log
+    # (see settingsui.py). RED is BRAND.md's own colour for "destructive
+    # actions", not merely borrowed from the trigger palette for emphasis.
+    style.configure(
+        "Destructive.TButton",
+        background=RED,
+        foreground=TEXT,
+        padding=(10, 6),
+    )
+    style.map(
+        "Destructive.TButton",
+        background=[("disabled", SURFACE_HI), ("active", "#c73830")],
+        foreground=[("disabled", TEXT_DIM)],
+    )
 
     style.configure(
         "TEntry",

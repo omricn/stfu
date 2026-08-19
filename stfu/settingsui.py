@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
+from typing import Callable
 
 from stfu import appicon, autostart, theme
 from stfu.calibrationui import CalibrationDialog
@@ -33,9 +34,18 @@ log = logging.getLogger(__name__)
 class SettingsWindow:
     """One form, one Save. Closing any other way discards changes."""
 
-    def __init__(self, master: tk.Misc, config: Config) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        config: Config,
+        on_start_over: Callable[[], None] | None = None,
+    ) -> None:
         self.master = master
         self.config = config
+        # Optional so this window can still be constructed directly (as
+        # tests do) without wiring up a real relaunch. If it is None the
+        # button below does nothing rather than raising -- see _start_over().
+        self._on_start_over = on_start_over
         self.root: tk.Toplevel | None = None
         self._status: tk.Label | None = None
         self._calibration: CalibrationDialog | None = None
@@ -152,6 +162,9 @@ class SettingsWindow:
         self._add_section(form, "Startup")
         self._add_autostart(form)
 
+        self._add_section(form, "Reset")
+        self._add_start_over(form)
+
     # --- form construction ----------------------------------------------
 
     def _add_section(self, parent: tk.Frame, title: str, first: bool = False) -> None:
@@ -229,6 +242,54 @@ class SettingsWindow:
             style="Surface.TCheckbutton",
         ).pack(anchor="w", padx=10, pady=8)
         self._bools["autostart"] = var
+
+    def _add_start_over(self, parent: tk.Frame) -> None:
+        """A clearly destructive control, in BRAND.md's red, not tucked in
+        among the ordinary settings rows above -- its own section, its own
+        colour, so it does not read as just another checkbox."""
+        row = self._row(parent)
+        tk.Label(
+            row,
+            text=(
+                "Erase the pinned microphone, PIN, calibrated thresholds, "
+                "and event log, and start over from first-run setup."
+            ),
+            wraplength=320,
+            justify="left",
+            anchor="w",
+            bg=theme.SURFACE,
+            fg=theme.TEXT_DIM,
+        ).pack(side="left", fill="x", expand=True, padx=(10, 10), pady=10)
+        ttk.Button(
+            row,
+            text="Start over...",
+            style="Destructive.TButton",
+            command=self._start_over,
+        ).pack(side="right", padx=(0, 10), pady=10)
+
+    def _confirm_start_over(self) -> bool:
+        """Names exactly what will be lost, and defaults to Cancel -- this
+        is the one action in this window that cannot be undone with another
+        trip through Save."""
+        return messagebox.askyesno(
+            "Start over?",
+            "This erases your pinned microphone, PIN, calibrated "
+            "thresholds, and event log history.\n\n"
+            "Your sound clips and pictures are kept.\n\n"
+            "S.TFU will close and reopen at first-run setup. This cannot "
+            "be undone.",
+            icon=messagebox.WARNING,
+            default=messagebox.NO,
+            parent=self.root,
+        )
+
+    def _start_over(self) -> None:
+        if self._on_start_over is None:
+            log.warning("Start over clicked with no handler wired up")
+            return
+        if not self._confirm_start_over():
+            return
+        self._on_start_over()
 
     # --- actions -----------------------------------------------------------
 
