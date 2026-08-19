@@ -43,11 +43,28 @@ jobs:
       - name: Confirm the assets made it into the exe
         # PyInstaller silently produces a working exe with missing data files,
         # and the failure only shows up as a silent app at runtime.
+        #
+        # pyi-archive_viewer prints Python reprs, so a bundled path lands in
+        # the listing with its separators already escaped:
+        #
+        #     'stfu\\assets\\sounds\\first\\Fart1.mp3'
+        #
+        # Hence `\+` -- one or more backslashes -- which reads the doubled
+        # form and a plain one alike. The first version of this step paired
+        # -SimpleMatch with 'stfu.assets.sounds', dots written as though they
+        # were regex wildcards; it matched nothing and failed the build on a
+        # correctly packaged exe.
         run: |
           .venv\Scripts\pyi-archive_viewer --list dist\stfu.exe > archive.txt
-          $found = (Select-String -Path archive.txt -Pattern 'stfu.assets.sounds' -SimpleMatch).Count
-          Write-Host "bundled sound files found: $found"
-          if ($found -lt 1) { throw "assets missing from the built exe" }
+          $first  = (Select-String -Path archive.txt -Pattern 'assets\\+sounds\\+first').Count
+          $repeat = (Select-String -Path archive.txt -Pattern 'assets\\+sounds\\+repeat').Count
+          $brand  = (Select-String -Path archive.txt -Pattern 'assets\\+brand\\+logo\.gif').Count
+          Write-Host "bundled -- first: $first, repeat: $repeat, brand logo: $brand"
+          # Both rungs, because the escalation ladder plays a clip from each,
+          # and the logo because the splash is the first thing a user sees.
+          if ($first -lt 1)  { throw "no first-strike clips in the built exe" }
+          if ($repeat -lt 1) { throw "no repeat-strike clips in the built exe" }
+          if ($brand -lt 1)  { throw "the brand logo is missing from the built exe" }
         shell: pwsh
 
       - name: Upload the unsigned build
