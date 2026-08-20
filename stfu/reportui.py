@@ -7,11 +7,21 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.dates import num2date
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 
 from stfu import appicon, theme
+from stfu.clock import format_dt
+from stfu.config import Config
 from stfu.logstore import LogStore
-from stfu.reportdata import csv_rows, session_summary, table_rows, trigger_points
+from stfu.reportdata import (
+    csv_rows,
+    off_windows,
+    session_summary,
+    table_rows,
+    trigger_points,
+)
 
 # Amber for the popup, red for the desktop drop -- the same accent order as
 # the mark, the meter, and the splash's progress bar (see docs/BRAND.md), so
@@ -37,9 +47,18 @@ def _style_axes(figure, axes) -> None:
 
 
 class ReportWindow:
-    def __init__(self, master: tk.Misc, store: LogStore) -> None:
+    def __init__(
+        self, master: tk.Misc, store: LogStore, config: Config | None = None
+    ) -> None:
         self.master = master
         self.store = store
+        # Optional so this window can still be constructed without wiring a
+        # real config, as the tests do. None means 24-hour, which is what it
+        # rendered before the setting existed.
+        self.config = config
+
+    def _clock(self) -> str:
+        return self.config.clock_format if self.config else "24h"
 
     def show(self) -> None:
         sessions = self.store.sessions()
@@ -94,7 +113,49 @@ class ReportWindow:
                     c=[ACTION_COLOURS.get(p.action, theme.TEXT_DIM) for p in points],
                     s=60,
                 )
+
+            info = session_summary(events)
+
+            # Shade the scheduled off-hours so a gap in triggers reads as
+            # "the app was deliberately not listening" rather than as a dead
+            # microphone or a missing log.
+            #
+            # Read from the whole log, not from `events`. The boundary records
+            # carry whatever session was open, and during quiet hours that is
+            # none, so events_for_session() -- which matches session_id by
+            # equality -- never returns them. Reading the filtered list finds
+            # nothing and silently defeats the reason they are logged at all.
+            #
+            # Clip to this session's span, so one night's view is not stretched
+            # across every window ever recorded. An unterminated span -- a
+            # suspend with no resume, meaning the app exited inside the window
+            # -- runs to the end of this session.
+            if info.first_at is not None and info.last_at is not None:
+                for start, end in off_windows(self.store.read_all()):
+                    finish = end if end is not None else info.last_at
+                    if finish < info.first_at or start > info.last_at:
+                        continue
+                    axes.axvspan(
+                        max(start, info.first_at),
+                        min(finish, info.last_at),
+                        color=theme.TEXT_DIM,
+                        alpha=0.18,
+                        zorder=0,
+                    )
+
             axes.set_ylabel("dBFS")
+            # Formatted through clock.format_dt rather than a strftime pattern,
+            # so the axis renders a 12-hour time exactly the way every other
+            # surface in the app does -- "1:04 PM", not "01:04 PM". num2date
+            # returns a UTC-aware value; the stored data is naive local, and
+            # dropping the offset recovers it.
+            axes.xaxis.set_major_formatter(
+                FuncFormatter(
+                    lambda value, _pos: format_dt(
+                        num2date(value).replace(tzinfo=None), self._clock()
+                    )
+                )
+            )
             figure.autofmt_xdate()
             canvas.draw()
 
@@ -104,7 +165,7 @@ class ReportWindow:
                     "",
                     "end",
                     values=(
-                        row.at.strftime("%H:%M:%S"),
+                        format_dt(row.at, self._clock(), seconds=True),
                         row.kind,
                         row.trigger,
                         "" if row.level_dbfs is None else f"{row.level_dbfs:.1f}",
@@ -113,7 +174,8 @@ class ReportWindow:
                     ),
                 )
 
-            info = session_summary(events)
+            # info was computed earlier, right after the scatter block, so the
+            # off-hours shading above could use info.first_at/last_at.
             summary_label.configure(
                 text=f"{info.trigger_count} triggers"
                 + (
