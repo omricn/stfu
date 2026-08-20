@@ -425,3 +425,20 @@ def test_a_window_that_wraps_midnight_gates_the_small_hours(tmp_path):
     )
     yell(engine, 0.0, datetime(2026, 8, 20, 2, 0))
     assert actions.names() == []
+
+
+def test_an_unparseable_window_on_the_live_config_does_not_kill_the_frame(tmp_path):
+    """The engine must survive a config object that never went through _coerce.
+
+    settingsui._save() sets raw Entry text on the shared Config and then
+    rebinds only its own reference to the coerced reload, so the engine can be
+    left holding an unparseable time with the schedule still enabled. That has
+    to degrade to "keep monitoring", never to an exception on the audio thread.
+    """
+    engine, actions = scheduled(tmp_path, schedule_off_from="banana")
+    assert engine.config.schedule_enabled is True
+
+    yell(engine, 0.0, datetime(2026, 8, 20, 12, 0))
+
+    assert engine.scheduled_off is False
+    assert actions.names() == [ACTION_OVERLAY]

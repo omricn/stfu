@@ -129,8 +129,14 @@ class Engine:
         if self.config.schedule_enabled:
             start = parse_time(self.config.schedule_off_from)
             end = parse_time(self.config.schedule_off_to)
-            # Unparseable times mean no window. _coerce should already have
-            # disabled the schedule, so this is the second line of defence.
+            # Unparseable times mean no window. This guard is load-bearing,
+            # not belt-and-braces: settingsui._save() writes raw Entry text
+            # onto this very Config object and then rebinds only its own
+            # reference to the coerced reload, so the object the engine holds
+            # can keep an unparseable string indefinitely. Without the guard
+            # is_off() would raise TypeError on the audio thread, and the
+            # capture loop does not catch it -- a silent death, which is a
+            # failure mode this app has already been bitten by.
             if start is not None and end is not None:
                 off = schedule.is_off(wall, start, end)
 
