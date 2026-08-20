@@ -98,6 +98,7 @@ from stfu.tray import (
     STATE_LISTENING,
     STATE_NO_MIC,
     STATE_PAUSED,
+    STATE_SCHEDULED_OFF,
     Tray,
     preload_image_codecs,
 )
@@ -440,6 +441,11 @@ class App:
         self._capture_stop = threading.Event()
         self._mic_present = threading.Event()
         self._mic_present.set()
+        # Last scheduled-off value pushed to the tray. The schedule changes
+        # state on a clock boundary with no event to hang a callback on, so the
+        # frame loop notices it -- but set_state rebuilds the icon bitmap, and
+        # the frame loop runs ~50 times a second.
+        self._tray_scheduled_off = False
 
         self.tray = Tray(
             config,
@@ -605,12 +611,35 @@ class App:
         """Feed the live meter window (F5) from the frame the capture thread
         already has -- never a second stream. See stfu/meterui.py for how the
         Tk side reads this without adding cross-thread traffic."""
+        scheduled_off = self.engine.scheduled_off
         self.meter.update(
             dbfs=dbfs_from_rms(rms),
             threshold_dbfs=self.engine.detector.current_threshold(),
             cooldown_remaining_s=self.engine.detector.cooldown_remaining(now),
             mic_present=mic_present,
+            scheduled_off=scheduled_off,
         )
+
+        # Only on a change: see __init__'s note on the cached value.
+        if scheduled_off != self._tray_scheduled_off:
+            self._tray_scheduled_off = scheduled_off
+            # A manual pause outranks the schedule in the icon, the same way it
+            # outranks it in the engine's gate -- don't overwrite amber-paused
+            # with amber-scheduled and lose the tooltip that says which.
+            if not self.engine.paused:
+                self.tray.set_state(self._listening_state(mic_present))
+
+    def _listening_state(self, mic_present: bool) -> str:
+        """The tray state for an app that is not manually paused.
+
+        Missing microphone first: that is a fault, and it must never be hidden
+        behind a state that says everything is fine on purpose.
+        """
+        if not mic_present:
+            return STATE_NO_MIC
+        if self.engine.scheduled_off:
+            return STATE_SCHEDULED_OFF
+        return STATE_LISTENING
 
     def _mic_lost(self) -> None:
         self._mic_present.clear()
@@ -626,7 +655,16 @@ class App:
     def _mic_found(self) -> None:
         self._mic_present.set()
         self.engine.on_mic_found()
-        self.tray.set_state(STATE_PAUSED if self.engine.paused else STATE_LISTENING)
+        # Resync the cache as well as the icon. _update_meter compares
+        # against it to decide whether the icon needs rebuilding, and a value
+        # left over from before the outage would make the next frame see a
+        # change that already happened.
+        self._tray_scheduled_off = self.engine.scheduled_off
+        self.tray.set_state(
+            STATE_PAUSED
+            if self.engine.paused
+            else self._listening_state(mic_present=True)
+        )
 
     # --- tray actions --------------------------------------------------
     # Tray already dispatches these through the bridge (see tray.py), so by
@@ -634,7 +672,7 @@ class App:
     # window directly.
 
     def _open_report(self) -> None:
-        ReportWindow(self.root, self.logstore).show()
+        ReportWindow(self.root, self.logstore, self.config).show()
 
     def _open_settings(self) -> None:
         SettingsWindow(self.root, self.config, on_start_over=self._start_over).show()
@@ -669,9 +707,7 @@ class App:
 
     def _auto_resume(self) -> None:
         self.engine.resume()
-        self.tray.set_state(
-            STATE_LISTENING if self._mic_present.is_set() else STATE_NO_MIC
-        )
+        self.tray.set_state(self._listening_state(self._mic_present.is_set()))
 
     def _request_exit(self) -> None:
         """Starts shutdown and ends mainloop(); the rest of the teardown

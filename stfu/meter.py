@@ -28,10 +28,16 @@ class MeterReading:
     threshold_dbfs: float
     cooldown_remaining_s: float
     mic_present: bool
+    # Defaulted so existing positional construction keeps working.
+    scheduled_off: bool = False
 
 
 _INITIAL = MeterReading(
-    dbfs=MIN_DBFS, threshold_dbfs=0.0, cooldown_remaining_s=0.0, mic_present=True
+    dbfs=MIN_DBFS,
+    threshold_dbfs=0.0,
+    cooldown_remaining_s=0.0,
+    mic_present=True,
+    scheduled_off=False,
 )
 
 
@@ -48,8 +54,11 @@ class MeterState:
         threshold_dbfs: float,
         cooldown_remaining_s: float,
         mic_present: bool,
+        scheduled_off: bool = False,
     ) -> None:
-        reading = MeterReading(dbfs, threshold_dbfs, cooldown_remaining_s, mic_present)
+        reading = MeterReading(
+            dbfs, threshold_dbfs, cooldown_remaining_s, mic_present, scheduled_off
+        )
         with self._lock:
             self._reading = reading
 

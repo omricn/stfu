@@ -11,6 +11,8 @@ import secrets
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
+from stfu.clock import CLOCK_FORMATS, to_canonical
+
 THRESHOLD_MODES = ("wizard", "manual", "adaptive")
 SESSION_RESET_MODES = ("session", "rolling_60m", "nightly")
 
@@ -51,6 +53,14 @@ class Config:
     # the fullscreen desktop drop. 0 means escalate immediately, on the
     # first strike.
     overlay_strikes: int = 2
+
+    # Scheduled off-hours. Times are stored canonically as 24-hour "HH:MM"
+    # whatever clock_format says, so the stored value never depends on a
+    # display preference and changing the format rewrites nothing.
+    schedule_enabled: bool = False
+    schedule_off_from: str = "07:00"
+    schedule_off_to: str = "22:00"
+    clock_format: str = "24h"
 
     # Actions (consumed by Plan 2, stored here so settings stay in one place)
     overlay_clicks_required: int = 4
@@ -107,6 +117,28 @@ def _coerce(cfg: Config) -> Config:
     if cfg.adaptive_min_threshold_dbfs > cfg.adaptive_max_threshold_dbfs:
         cfg.adaptive_min_threshold_dbfs = default.adaptive_min_threshold_dbfs
         cfg.adaptive_max_threshold_dbfs = default.adaptive_max_threshold_dbfs
+    if cfg.clock_format not in CLOCK_FORMATS:
+        cfg.clock_format = default.clock_format
+
+    # Normalise whatever was typed into stored form. A time that cannot be
+    # parsed at all disables the schedule instead of falling back to a window
+    # nobody chose -- see this function's docstring: a bad config must never
+    # silently disable detection, and a guessed window would do exactly that.
+    for name in ("schedule_off_from", "schedule_off_to"):
+        canonical = to_canonical(getattr(cfg, name))
+        if canonical is None:
+            setattr(cfg, name, getattr(default, name))
+            cfg.schedule_enabled = False
+        else:
+            setattr(cfg, name, canonical)
+
+    # Ambiguous between a zero-length window and a whole day. The whole-day
+    # reading would switch detection off permanently, so refuse both.
+    # schedule.is_off refuses an equal pair too, and deliberately: both
+    # answers point at monitoring, so a regression in either one still
+    # leaves the app listening.
+    if cfg.schedule_off_from == cfg.schedule_off_to:
+        cfg.schedule_enabled = False
     return cfg
 
 

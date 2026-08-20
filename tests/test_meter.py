@@ -56,3 +56,23 @@ def test_a_reading_is_never_a_mix_of_two_updates():
         thread.join(timeout=2.0)
 
     assert mismatches == []
+
+
+def test_a_reading_carries_whether_the_schedule_is_off():
+    state = MeterState()
+    state.update(
+        dbfs=-30.0,
+        threshold_dbfs=-12.0,
+        cooldown_remaining_s=0.0,
+        mic_present=True,
+        scheduled_off=True,
+    )
+    assert state.read().scheduled_off is True
+
+
+def test_scheduled_off_defaults_to_false_for_older_callers():
+    state = MeterState()
+    state.update(
+        dbfs=-30.0, threshold_dbfs=-12.0, cooldown_remaining_s=0.0, mic_present=True
+    )
+    assert state.read().scheduled_off is False

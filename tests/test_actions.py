@@ -91,11 +91,6 @@ def test_an_unknown_action_name_is_survivable(parts):
     assert shown == []
 
 
-def test_the_usb_light_action_is_registered_but_does_nothing(parts):
-    registry, _, _, shown = parts
-    assert registry.fire("usb_light", event()) is None
-    assert shown == []
-
 
 def test_the_overlay_action_drops_then_sounds_then_shows(tmp_path):
     # Both orderings are load-bearing. show() blocks until the overlay is

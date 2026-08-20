@@ -18,7 +18,24 @@ EVENT_TYPES = (
     "mic_found",
     "app_paused",
     "app_resumed",
+    # Entering and leaving the configured off-hours window. Logged so the
+    # report can label the gap rather than showing missing data.
+    "schedule_suspended",
+    "schedule_resumed",
 )
+
+
+def for_session(events: list[dict], session_id: str) -> list[dict]:
+    """Narrow an already-read event list to one session.
+
+    Split out from LogStore.events_for_session so a caller that already holds
+    the whole log can reuse the same predicate instead of re-reading the file.
+    The report needs both views at once -- one session for the table, the whole
+    log for the off-hours bands, whose records carry no session id -- and two
+    reads of a log that has grown over months is a UI stutter waiting to
+    happen.
+    """
+    return [e for e in events if e.get("session_id") == session_id]
 
 
 class LogStore:
@@ -54,7 +71,7 @@ class LogStore:
         return events
 
     def events_for_session(self, session_id: str) -> list[dict]:
-        return [e for e in self.read_all() if e.get("session_id") == session_id]
+        return for_session(self.read_all(), session_id)
 
     def clear(self) -> None:
         """Delete the event log, discarding all history.

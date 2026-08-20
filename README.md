@@ -139,7 +139,7 @@ Right-click the tray icon:
 
 🔒 items ask for the PIN — type it and the dialog closes as soon as it is right, no Enter needed.
 
-**Live meter** is the one to open when you are wondering whether it is listening at all. It shows the current level, the threshold in force, and **the seconds left on the cooldown** — because a working cooldown and a dead microphone otherwise look exactly the same from the outside. The icon is green when listening, amber when paused, grey when the microphone is missing.
+**Live meter** is the one to open when you are wondering whether it is listening at all. It shows the current level, the threshold in force, and **the seconds left on the cooldown** — because a working cooldown and a dead microphone otherwise look exactly the same from the outside. When the schedule has switched it off, the meter says "Off on schedule" instead of showing a flat bar. The icon is green when listening, amber when paused or sitting out the scheduled off-hours window, grey when the microphone is missing.
 
 Settings exposes **every** changeable setting — threshold mode and thresholds, detection window lengths, cooldown, session-reset behaviour, the adaptive-mode parameters, overlay clicks, message duration, sound volume and clip length, and autostart.
 
@@ -149,6 +149,23 @@ Two of them are worth knowing about:
 - **Play sounds** — off means silent reactions
 
 Turn both off and you get a **log-only mode**. Worth running for a night after calibrating: you can check the threshold is catching the right things from the report, before it starts interrupting anyone.
+
+### Scheduled off-hours
+
+**Schedule** disables detection entirely between two times, every day. Nothing is
+detected, logged as a trigger, or reacted to inside the window — the tray icon goes
+amber and the live meter says so rather than showing a flat bar you could mistake
+for a dead microphone.
+
+The window wraps midnight, so `22:00`–`07:00` means overnight. Times accept whatever
+you type — `1pm`, `13:00`, `1:30 PM` — and are redisplayed in the format you pick
+under **Clock format**, which also drives the times in the report. An unparseable
+time switches the schedule off rather than guessing at a window, on the same
+principle as everything else here: a bad setting must never quietly stop it
+listening.
+
+Both boundaries are written to the event log, so the report shades the window
+instead of leaving a gap you have to explain to yourself later.
 
 ### Threshold modes
 
@@ -182,6 +199,8 @@ It works best as something agreed to. Used as a hidden trap, it will be found, r
 stfu/
   levels.py      RMS, dBFS, display meter
   config.py      settings, validation, PIN hashing
+  clock.py       parsing and formatting wall-clock times
+  schedule.py    the off-hours window predicate
   detector.py    spike + sustain rules, three threshold modes, cooldown
   strikes.py     the escalation ladder
   logstore.py    append-only JSONL event log
@@ -196,7 +215,7 @@ stfu/
   ...            first-run wizard, tray, report, settings, packaging
 ```
 
-`levels`, `config`, `detector`, `strikes`, `logstore` and `engine` are pure decision logic with **no audio, UI, or Win32 imports** — a test enforces that mechanically by inspecting their ASTs. That's why the detection logic is testable without a microphone, and it's most of why there are 437 tests (433 passing, 4 skipped).
+`levels`, `config`, `detector`, `strikes`, `logstore`, `engine`, `clock` and `schedule` are pure decision logic with **no audio, UI, or Win32 imports** — a test enforces that mechanically by inspecting their ASTs. That's why the detection logic is testable without a microphone, and it's most of why there are 598 tests (572 passing, 26 skipped).
 
 See [docs/DESIGN.md](docs/DESIGN.md) for why the design is the way it is — the thresholds, the escalation rules, the failure modes, and the trade-offs that were accepted deliberately.
 

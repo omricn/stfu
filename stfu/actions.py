@@ -1,8 +1,7 @@
 """The named actions the engine dispatches into.
 
-The engine knows only names. Adding an action -- the planned USB indicator
-light, for instance -- means writing one method and registering its name here,
-with no change to detection, strikes, or the engine.
+The engine knows only names. Adding an action means writing one method and
+registering its name here, with no change to detection, strikes, or the engine.
 """
 
 from __future__ import annotations
@@ -16,8 +15,6 @@ from stfu.strikes import ACTION_DESKTOP_DROP, ACTION_OVERLAY
 from stfu.winapi import WinApi
 
 log = logging.getLogger(__name__)
-
-ACTION_USB_LIGHT = "usb_light"
 
 
 class ActionRegistry:
@@ -49,7 +46,6 @@ class ActionRegistry:
         self._handlers = {
             ACTION_OVERLAY: self._overlay,
             ACTION_DESKTOP_DROP: self._desktop_drop,
-            ACTION_USB_LIGHT: self._usb_light,
         }
 
     def fire(self, name: str, event) -> float | None:
@@ -100,11 +96,3 @@ class ActionRegistry:
         if self.config.popups_enabled:
             self._message_factory().show()
         return seconds
-
-    def _usb_light(self, event) -> float | None:
-        """Stub for the planned USB indicator light.
-
-        Registered so the wiring is proven, disabled until hardware is chosen.
-        TODO: open the serial/HID device and set the colour from event.kind.
-        """
-        return None

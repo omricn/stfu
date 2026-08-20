@@ -42,10 +42,33 @@ class SessionSummary:
 
 
 def _parse(ts: str | None) -> datetime | None:
+    """Parse a log timestamp to a naive local datetime.
+
+    The log genuinely mixes both kinds, and always has. Records the engine
+    writes carry `ts=wall.isoformat()`, and `wall` is a naive `datetime.now()`;
+    records that let `LogStore.append` stamp its own -- mic_lost, mic_found,
+    app_paused, app_resumed -- carry an aware `datetime.now().astimezone()`.
+    Sorting a list holding both raised "can't compare offset-naive and
+    offset-aware datetimes", so `table_rows` and `session_summary` blew up on
+    any log from a machine whose microphone had ever dropped mid-session, or
+    where Pause had ever been used.
+
+    Normalising to naive *local* time is the right direction here, and the
+    opposite of what `logstore._instant` does. That function assumes UTC for a
+    naive value because it only ever orders records. These values are
+    displayed -- the detail table's time column and the chart's axis -- so
+    assuming UTC would shift every engine-written row by the local offset. The
+    app is single-machine and shows local wall-clock only, so converting the
+    aware ones to local and dropping the offset loses nothing that is ever
+    read.
+    """
     try:
-        return datetime.fromisoformat(ts) if ts else None
+        moment = datetime.fromisoformat(ts) if ts else None
     except (TypeError, ValueError):
         return None
+    if moment is not None and moment.tzinfo is not None:
+        moment = moment.astimezone().replace(tzinfo=None)
+    return moment
 
 
 def trigger_points(events: list[dict]) -> list[TriggerPoint]:
@@ -66,6 +89,38 @@ def trigger_points(events: list[dict]) -> list[TriggerPoint]:
             )
         )
     return sorted(points, key=lambda p: p.at)
+
+
+SCHEDULE_SUSPENDED = "schedule_suspended"
+SCHEDULE_RESUMED = "schedule_resumed"
+
+
+def off_windows(events: list[dict]) -> list[tuple[datetime, datetime | None]]:
+    """Pair schedule_suspended/schedule_resumed events into spans.
+
+    Unpaired events are expected, not exceptional: the app can exit inside the
+    window, leaving a suspend with no resume, and the log can begin mid-window,
+    leaving a resume with no suspend. The first yields a span ending in None,
+    meaning "still off at the end of the data"; the second is ignored.
+    """
+    spans: list[tuple[datetime, datetime | None]] = []
+    start: datetime | None = None
+
+    for record in sorted(events, key=lambda e: e.get("ts") or ""):
+        at = _parse(record.get("ts"))
+        if at is None:
+            continue
+        kind = record.get("type")
+        if kind == SCHEDULE_SUSPENDED:
+            if start is None:
+                start = at
+        elif kind == SCHEDULE_RESUMED and start is not None:
+            spans.append((start, at))
+            start = None
+
+    if start is not None:
+        spans.append((start, None))
+    return spans
 
 
 def table_rows(events: list[dict]) -> list[TableRow]:

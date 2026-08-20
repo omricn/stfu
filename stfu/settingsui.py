@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
+from dataclasses import fields
 from tkinter import messagebox, ttk
 from typing import Callable
 
 from stfu import appicon, autostart, theme
 from stfu.calibrationui import CalibrationDialog
+from stfu.clock import CLOCK_FORMATS, format_time, parse_time
 from stfu.config import (
     SESSION_RESET_MODES,
     THRESHOLD_MODES,
@@ -54,6 +56,9 @@ class SettingsWindow:
         self._fields: dict[str, tk.StringVar] = {}
         # Checkbutton fields.
         self._bools: dict[str, tk.BooleanVar] = {}
+        # Time fields. Kept apart from _fields because they display in the
+        # operator's chosen clock format but store canonical 24-hour "HH:MM".
+        self._times: dict[str, tk.StringVar] = {}
 
     def show(self) -> None:
         self.root = tk.Toplevel(self.master)
@@ -140,6 +145,12 @@ class SettingsWindow:
         self._add_entry(form, "rolling_reset_minutes", "Rolling reset (minutes)")
         self._add_entry(form, "nightly_reset_hour", "Nightly reset hour (0-23)")
 
+        self._add_section(form, "Schedule")
+        self._add_bool(form, "schedule_enabled", "Disable during these hours")
+        self._add_time_entry(form, "schedule_off_from", "From")
+        self._add_time_entry(form, "schedule_off_to", "To")
+        self._add_choice(form, "clock_format", "Clock format", CLOCK_FORMATS)
+
         self._add_section(form, "Adaptive")
         self._add_entry(form, "adaptive_delta_db", "dB above baseline")
         self._add_entry(form, "adaptive_min_threshold_dbfs", "Floor (dBFS)")
@@ -200,6 +211,36 @@ class SettingsWindow:
             side="left", padx=(0, 10), pady=8
         )
         self._fields[name] = var
+
+    def _add_time_entry(self, parent: tk.Frame, name: str, label: str) -> None:
+        """A row for a stored "HH:MM" value, shown in the chosen format.
+
+        Input is not restricted to that format: parse_time accepts "1pm",
+        "13:00" and several spellings besides, and _coerce normalises whatever
+        survives back to storage form on save. Rejecting "1pm" from someone who
+        picked 12-hour display would be perverse.
+        """
+        row = self._row(parent)
+        tk.Label(
+            row, text=label, width=26, anchor="w", bg=theme.SURFACE, fg=theme.TEXT
+        ).pack(side="left", padx=(10, 0), pady=8)
+        var = tk.StringVar(master=self.root, value=self._display_time(name))
+        ttk.Entry(row, textvariable=var, width=14).pack(
+            side="left", padx=(0, 10), pady=8
+        )
+        self._times[name] = var
+
+    def _display_time(self, name: str) -> str:
+        """The stored value rendered in the configured clock format.
+
+        Falls back to the raw string when it will not parse, so a value that
+        somehow reached disk unparseable is visible and correctable rather than
+        silently replaced in the box the operator is looking at.
+        """
+        minutes = parse_time(getattr(self.config, name))
+        if minutes is None:
+            return str(getattr(self.config, name))
+        return format_time(minutes, self.config.clock_format)
 
     def _add_choice(self, parent: tk.Frame, name: str, label: str, values) -> None:
         row = self._row(parent)
@@ -317,15 +358,36 @@ class SettingsWindow:
         for name, var in self._bools.items():
             setattr(self.config, name, bool(var.get()))
 
+        # Store canonical form where it parses; leave the raw text otherwise so
+        # _coerce sees it, rejects it, and disables the schedule rather than
+        # this method quietly inventing a window.
+        for name, var in self._times.items():
+            minutes = parse_time(var.get())
+            if minutes is None:
+                setattr(self.config, name, var.get())
+            else:
+                setattr(self.config, name, f"{minutes // 60:02d}:{minutes % 60:02d}")
+
         # Round-trip through disk so _coerce validates whatever was typed --
         # anything nonsensical is replaced with a safe default, never with
         # something that silently disables detection.
         save_config(self.config)
-        self.config = load_config()
+        # Copy the coerced values back onto the *same* object rather than
+        # rebinding self.config. App hands one Config to both the engine and
+        # this window, so rebinding leaves the engine holding whatever raw text
+        # was typed here -- every coercion rule silently not applying until the
+        # next restart. Reproduced before this fix: an out-of-range
+        # cooldown_seconds was clamped on disk and in this window while the
+        # engine kept the bad value.
+        coerced = load_config()
+        for field in fields(Config):
+            setattr(self.config, field.name, getattr(coerced, field.name))
         for name, var in self._fields.items():
             var.set(str(getattr(self.config, name)))
         for name, var in self._bools.items():
             var.set(bool(getattr(self.config, name)))
+        for name, var in self._times.items():
+            var.set(self._display_time(name))
         self._set_status("Saved.")
 
     def _close(self) -> None:

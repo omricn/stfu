@@ -1,8 +1,53 @@
 # Changelog
 
-All notable changes to S.TFU are documented here. This is the first public
-release, so the entry below is a summary of what it does, not a diff against
-a previous version.
+All notable changes to S.TFU are documented here. The 1.0.0 entry is a
+summary of what the app does rather than a diff, since it was the first public
+release; everything after it is a real changelog.
+
+## [1.1.0] — 2026-08-20
+
+### Added
+
+- A daily **scheduled off-hours window**, set in Settings: detection is switched
+  off entirely between two times, every day, rather than merely muted. Nothing
+  is detected, logged as a trigger, or reacted to while it's in force
+- The window wraps midnight, so a range like 22:00–07:00 covers overnight
+  without the operator having to think about the date boundary
+- Off-hours boundaries are written to the event log, so the report can shade
+  the span instead of leaving a gap that reads exactly like a dropped
+  microphone
+- A **clock format** preference (12-hour or 24-hour), used everywhere a time
+  of day is shown — the schedule fields, the report's detail table, and the
+  chart axis. Times are still stored canonically in 24-hour form, so changing
+  the preference redisplays existing settings rather than rewriting them
+- Off-hours times accept whatever's typed — `1pm`, `13:00`, `1:30 PM` — the
+  same leniency in the box regardless of which display format is selected
+- A tray state and matching live-meter message for scheduled off-hours, so
+  the amber icon and the flat meter say *why* nothing is happening instead of
+  looking like a dead microphone or a paused app
+
+### Fixed
+
+- **The report window could crash outright** on any log that had ever recorded
+  a dropped microphone or a Pause 15 min. The log has always mixed naive and
+  timezone-aware timestamps between different event types, and sorting a list
+  containing both raised `TypeError: can't compare offset-naive and
+  offset-aware datetimes`. Every timestamp is now normalised to naive local
+  time before anything compares or sorts them
+- **A Settings change could silently fail to reach the running app.** Saving
+  wrote the coerced, validated values back onto the same `Config` object the
+  engine already holds, rather than rebinding Settings' own reference to a
+  fresh reload and leaving the engine with whatever was typed. Previously, an
+  out-of-range value like `cooldown_seconds` would show clamped in Settings
+  and on disk while the engine kept using the bad number until the app was
+  restarted
+
+### Removed
+
+- The stubbed USB indicator light action, along with its `TODO` call sites and
+  its mention in the design doc. It was registered and wired into the strike
+  ladder but never talked to hardware, and no hardware was ever chosen for it
+  — it read as unfinished work rather than a deliberate extension point
 
 ## [1.0.0] — 2026-08-19
 
@@ -37,8 +82,6 @@ a previous version.
 - "Show popups" and "Play sounds" can each be switched off independently,
   including a log-only mode with both off
 - A tray-only "Pause 15 min" control
-- A stubbed USB indicator light action, wired into the registry but not
-  yet backed by hardware
 
 ### Setup
 
