@@ -162,3 +162,69 @@ def test_the_first_save_has_nothing_to_back_up(tmp_path):
     path = tmp_path / "config.json"
     save_config(Config(), path)
     assert not path.with_suffix(".json.bak").exists()
+
+
+def test_schedule_defaults_are_off():
+    cfg = Config()
+    assert cfg.schedule_enabled is False
+    assert cfg.schedule_off_from == "07:00"
+    assert cfg.schedule_off_to == "22:00"
+    assert cfg.clock_format == "24h"
+
+
+def test_a_valid_schedule_round_trips(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(
+        Config(
+            schedule_enabled=True,
+            schedule_off_from="08:30",
+            schedule_off_to="21:00",
+            clock_format="12h",
+        ),
+        path,
+    )
+    loaded = load_config(path)
+    assert loaded.schedule_enabled is True
+    assert loaded.schedule_off_from == "08:30"
+    assert loaded.schedule_off_to == "21:00"
+    assert loaded.clock_format == "12h"
+
+
+def test_a_time_typed_in_twelve_hour_form_is_stored_canonically(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(
+        Config(schedule_enabled=True, schedule_off_from="1pm", schedule_off_to="11 PM"),
+        path,
+    )
+    loaded = load_config(path)
+    assert loaded.schedule_off_from == "13:00"
+    assert loaded.schedule_off_to == "23:00"
+    assert loaded.schedule_enabled is True
+
+
+def test_an_unparseable_time_disables_the_schedule_rather_than_guessing(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(
+        Config(schedule_enabled=True, schedule_off_from="whenever", schedule_off_to="22:00"),
+        path,
+    )
+    loaded = load_config(path)
+    # Detection must never be left switched off on a value nobody chose.
+    assert loaded.schedule_enabled is False
+    assert loaded.schedule_off_from == "07:00"
+
+
+def test_equal_start_and_end_disables_the_schedule(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(
+        Config(schedule_enabled=True, schedule_off_from="09:00", schedule_off_to="9am"),
+        path,
+    )
+    loaded = load_config(path)
+    assert loaded.schedule_enabled is False
+
+
+def test_an_unknown_clock_format_falls_back_to_twenty_four_hour(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(Config(clock_format="swatch-beats"), path)
+    assert load_config(path).clock_format == "24h"
