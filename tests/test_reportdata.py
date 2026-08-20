@@ -211,3 +211,50 @@ def test_off_windows_finds_records_that_session_filtering_would_miss(tmp_path):
 
     assert off_windows(store.events_for_session("s1")) == []
     assert len(off_windows(store.read_all())) == 1
+
+
+def test_a_log_mixing_naive_and_aware_timestamps_is_still_readable():
+    """The report window crashed outright on any log holding both kinds.
+
+    Engine-written records carry a naive `wall.isoformat()`. Records that let
+    LogStore.append stamp its own -- mic_lost, mic_found, app_paused,
+    app_resumed -- carry an aware one. Sorting them together raised TypeError,
+    so Report was unopenable for anyone whose microphone had ever dropped
+    mid-session or who had ever used Pause 15 min.
+
+    Asserts on count and tz-naivety rather than on order, because converting
+    the aware record to local time makes its position machine-dependent.
+    """
+    mixed = [
+        event("trigger", "2026-08-19T23:01:00"),
+        event("mic_lost", "2026-08-19T23:02:00+03:00"),
+        event("mic_found", "2026-08-19T23:03:00+03:00"),
+    ]
+
+    rows = table_rows(mixed)
+    assert len(rows) == 3
+    assert all(row.at.tzinfo is None for row in rows)
+
+
+def test_session_summary_survives_a_mixed_log():
+    """reportui's off-hours band clipping depends on this not raising."""
+    info = session_summary(
+        [
+            event("trigger", "2026-08-19T23:01:00"),
+            event("mic_lost", "2026-08-19T23:02:00+03:00"),
+        ]
+    )
+    assert info.first_at is not None
+    assert info.last_at is not None
+    assert info.first_at.tzinfo is None
+
+
+def test_an_aware_timestamp_renders_as_local_wall_clock():
+    """An aware record must not be displayed shifted by the local offset."""
+    from datetime import datetime as dt, timedelta, timezone
+
+    # Build an offset that is definitely not this machine's, then check the
+    # parsed value equals the same instant expressed in local time.
+    aware = dt(2026, 8, 19, 23, 0, tzinfo=timezone(timedelta(hours=-7)))
+    rows = table_rows([event("mic_lost", aware.isoformat())])
+    assert rows[0].at == aware.astimezone().replace(tzinfo=None)
