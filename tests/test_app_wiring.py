@@ -1,4 +1,5 @@
-from stfu.app import DeviceWatch, perform_start_over
+from stfu.app import App, DeviceWatch, perform_start_over
+from stfu.tray import STATE_LISTENING, STATE_NO_MIC, STATE_SCHEDULED_OFF
 
 
 class FakeClock:
@@ -78,3 +79,39 @@ def test_a_failed_relaunch_touches_nothing_else():
     result = perform_start_over(rec.spawn, rec.reset, rec.request_exit)
     assert result is False
     assert rec.calls == ["spawn"]
+
+
+class _FakeEngine:
+    """Stands in for the real Engine -- _listening_state only ever reads
+    .scheduled_off off of it."""
+
+    def __init__(self, scheduled_off: bool) -> None:
+        self.scheduled_off = scheduled_off
+
+
+class _AppLike:
+    """A duck-typed stand-in for the `self` that App._listening_state()
+    expects. Constructing a real App drags in a live MicSource, Engine,
+    and Tray (pystray, sounddevice) -- not practical for a unit test, and
+    the method itself only touches self.engine, so this is enough to
+    exercise the real method body unmodified."""
+
+    def __init__(self, scheduled_off: bool) -> None:
+        self.engine = _FakeEngine(scheduled_off)
+
+
+def test_listening_state_prefers_no_mic_over_scheduled_off():
+    # Mic absent and scheduled off -- a fault must not be hidden behind a
+    # state that says everything is fine on purpose.
+    app_like = _AppLike(scheduled_off=True)
+    assert App._listening_state(app_like, mic_present=False) == STATE_NO_MIC
+
+
+def test_listening_state_reports_scheduled_off_when_mic_present():
+    app_like = _AppLike(scheduled_off=True)
+    assert App._listening_state(app_like, mic_present=True) == STATE_SCHEDULED_OFF
+
+
+def test_listening_state_reports_listening_when_neither_applies():
+    app_like = _AppLike(scheduled_off=False)
+    assert App._listening_state(app_like, mic_present=True) == STATE_LISTENING
