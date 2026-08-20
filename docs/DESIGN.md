@@ -360,7 +360,7 @@ minimize-then-overlay against a fullscreen game · 4-click X randomization · Wi
 | Threshold biased toward the yell | A false positive on normal speech destroys trust in the app faster than a missed yell |
 | Always minimize before showing | Only reliable way to surface a window over an exclusive-fullscreen game |
 | Session-cumulative strikes, no decay | Isolated yells spread across a night are the problem; a short reset window would never escalate |
-| 30 s cooldown | Every loud noise carries a consequence; one continuous yell does not chain |
+| 10 s cooldown | Every loud noise carries a consequence; one continuous yell does not chain |
 | Events-only logging | The chart is about *when and how often*, not waveform archaeology |
 | Visible tray + PIN, not a hidden watchdog | The app works as a feedback device the user knows about; the log is the operator's evidence |
 | Python + PyInstaller | Matches the available toolchain; audio and charting are far less code than in C# |
@@ -368,6 +368,10 @@ minimize-then-overlay against a fullscreen game · 4-click X randomization · Wi
 | Sound clips supplied by the operator, folder rescanned per trigger | Clips get added after deployment; nothing ships with the app and no restart is needed to change the library |
 | Separate `first\` and `repeat\` clip folders | The two rungs mean different things; the audio should be able to say so |
 | Detection suppressed during clip playback | Prevents the app triggering on its own sound on any speaker-based setup |
+| Off-hours evaluated per frame, not by a timer | The machine sleeps; a timer set for a boundary during suspend never fires, and a fixed delay drifts an hour across DST |
+| Off-hours boundaries written to the event log | Otherwise the report shows a gap indistinguishable from a dead microphone or a lost log |
+| Times stored as 24-hour "HH:MM", displayed per preference | The stored value never depends on a display setting, so changing the format rewrites nothing |
+| An unparseable or zero-width window disables the schedule | `_coerce`'s rule: never leave detection switched off on a value nobody chose |
 
 ## 9. Explicitly out of scope
 
@@ -375,3 +379,4 @@ minimize-then-overlay against a fullscreen game · 4-click X randomization · Wi
 - Remote monitoring, network reporting, or cloud sync
 - Blocking input, locking the workstation, or killing the game
 - Multi-user or multi-PC support
+- Per-weekday or multiple off-hours windows — one window, all seven days
