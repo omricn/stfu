@@ -319,3 +319,109 @@ def test_resuming_when_not_paused_is_a_no_op(parts):
     yell(engine, 0.0, datetime(2026, 8, 17, 20, 0))
     engine.resume()
     assert not [e for e in engine.logstore.read_all() if e["type"] == "app_resumed"]
+
+
+def scheduled(tmp_path, **overrides):
+    """An engine whose config has an off-hours window in force."""
+    kwargs = dict(
+        threshold_mode="manual",
+        spike_threshold_dbfs=-12.0,
+        cooldown_seconds=30,
+        schedule_enabled=True,
+        schedule_off_from="07:00",
+        schedule_off_to="22:00",
+    )
+    kwargs.update(overrides)
+    config = Config(**kwargs)
+    actions = RecordingActions()
+    engine = Engine(
+        config=config,
+        source=FakeSource([]),
+        actions=actions,
+        logstore=LogStore(tmp_path / "events.jsonl"),
+    )
+    return engine, actions
+
+
+def test_a_yell_inside_the_off_hours_window_fires_nothing(tmp_path):
+    engine, actions = scheduled(tmp_path)
+    yell(engine, 0.0, datetime(2026, 8, 20, 12, 0))
+    assert actions.names() == []
+    assert engine.scheduled_off is True
+
+
+def test_a_yell_outside_the_window_still_fires(tmp_path):
+    engine, actions = scheduled(tmp_path)
+    yell(engine, 0.0, datetime(2026, 8, 20, 23, 0))
+    assert actions.names() == [ACTION_OVERLAY]
+    assert engine.scheduled_off is False
+
+
+def test_a_disabled_schedule_monitors_at_every_hour(tmp_path):
+    engine, actions = scheduled(tmp_path, schedule_enabled=False)
+    yell(engine, 0.0, datetime(2026, 8, 20, 12, 0))
+    assert actions.names() == [ACTION_OVERLAY]
+    assert engine.scheduled_off is False
+
+
+def test_entering_the_window_is_logged_once_not_once_per_frame(tmp_path):
+    engine, _ = scheduled(tmp_path)
+    quiet(engine, 0.0, datetime(2026, 8, 20, 12, 0), frames=50)
+    suspends = [
+        e for e in engine.logstore.read_all() if e["type"] == "schedule_suspended"
+    ]
+    assert len(suspends) == 1
+
+
+def test_leaving_the_window_logs_a_resume_and_resets_the_detector(tmp_path):
+    engine, _ = scheduled(tmp_path)
+    calls = []
+    real_reset = engine.detector.reset
+
+    def spy():
+        calls.append(1)
+        real_reset()
+
+    engine.detector.reset = spy
+
+    # Inside the window, then outside it.
+    quiet(engine, 0.0, datetime(2026, 8, 20, 21, 59), frames=5)
+    assert calls == []
+    quiet(engine, 1.0, datetime(2026, 8, 20, 22, 0), frames=5)
+
+    # Reset on the falling edge only: the rolling windows still hold frames
+    # from before the window, which may be hours old.
+    assert calls == [1]
+    kinds = [e["type"] for e in engine.logstore.read_all()]
+    assert kinds == ["schedule_suspended", "schedule_resumed"]
+
+
+def test_disabling_the_schedule_mid_window_resumes_on_the_next_frame(tmp_path):
+    engine, actions = scheduled(tmp_path)
+    quiet(engine, 0.0, datetime(2026, 8, 20, 12, 0), frames=5)
+    assert engine.scheduled_off is True
+
+    engine.config.schedule_enabled = False
+    yell(engine, 1.0, datetime(2026, 8, 20, 12, 1))
+
+    assert engine.scheduled_off is False
+    assert actions.names() == [ACTION_OVERLAY]
+
+
+def test_manual_pause_and_the_schedule_are_independent(tmp_path):
+    engine, actions = scheduled(tmp_path)
+    engine.pause()
+    # Outside the window, but manually paused: still nothing.
+    yell(engine, 0.0, datetime(2026, 8, 20, 23, 0))
+    assert actions.names() == []
+    engine.resume()
+    yell(engine, 10.0, datetime(2026, 8, 20, 23, 1))
+    assert actions.names() == [ACTION_OVERLAY]
+
+
+def test_a_window_that_wraps_midnight_gates_the_small_hours(tmp_path):
+    engine, actions = scheduled(
+        tmp_path, schedule_off_from="23:00", schedule_off_to="06:00"
+    )
+    yell(engine, 0.0, datetime(2026, 8, 20, 2, 0))
+    assert actions.names() == []
