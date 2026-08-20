@@ -111,3 +111,26 @@ def test_schedule_boundary_events_are_accepted(tmp_path):
     store.append(type="schedule_resumed", session_id="s1")
     kinds = [event["type"] for event in store.read_all()]
     assert kinds == ["schedule_suspended", "schedule_resumed"]
+
+
+def test_for_session_matches_events_for_session(tmp_path):
+    """The free function is the predicate events_for_session delegates to.
+
+    reportui narrows an already-read list with it rather than re-reading the
+    whole JSONL, so the two must not be able to drift apart.
+    """
+    from stfu.logstore import for_session
+
+    store = LogStore(tmp_path / "events.jsonl")
+    store.append(type="session_start", session_id="s1")
+    store.append(type="session_start", session_id="s2")
+    store.append(type="schedule_suspended", session_id=None)
+
+    everything = store.read_all()
+    for session_id in ("s1", "s2", "nope"):
+        assert for_session(everything, session_id) == store.events_for_session(
+            session_id
+        )
+
+    # The schedule record belongs to no session and must not leak into one.
+    assert for_session(everything, None) == [everything[2]]

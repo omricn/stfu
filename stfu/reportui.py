@@ -14,7 +14,7 @@ from matplotlib.ticker import FuncFormatter
 from stfu import appicon, theme
 from stfu.clock import format_dt
 from stfu.config import Config
-from stfu.logstore import LogStore
+from stfu.logstore import LogStore, for_session
 from stfu.reportdata import (
     csv_rows,
     off_windows,
@@ -101,7 +101,13 @@ class ReportWindow:
 
         def load(_event=None) -> None:
             session = chooser.get()
-            events = self.store.events_for_session(session) if session else []
+            # One read, two views. The table wants this session's events; the
+            # off-hours bands below want the whole log, because their records
+            # carry no session id. events_for_session() would re-read and
+            # re-parse the entire JSONL to get the first of those, so read
+            # once here and narrow with the same predicate it uses.
+            all_events = self.store.read_all()
+            events = for_session(all_events, session) if session else []
 
             axes.clear()
             _style_axes(figure, axes)
@@ -131,7 +137,7 @@ class ReportWindow:
             # suspend with no resume, meaning the app exited inside the window
             # -- runs to the end of this session.
             if info.first_at is not None and info.last_at is not None:
-                for start, end in off_windows(self.store.read_all()):
+                for start, end in off_windows(all_events):
                     finish = end if end is not None else info.last_at
                     if finish < info.first_at or start > info.last_at:
                         continue
@@ -165,6 +171,13 @@ class ReportWindow:
                     "",
                     "end",
                     values=(
+                        # Baked in at load() time, not re-evaluated on
+                        # redraw: if Settings changes the clock format while
+                        # this window is open, the axis follows immediately
+                        # but these rows keep their format until the session
+                        # is reselected. Acceptable -- the alternative is
+                        # rebuilding the table on a timer for a case nobody
+                        # hits often.
                         format_dt(row.at, self._clock(), seconds=True),
                         row.kind,
                         row.trigger,
