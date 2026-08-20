@@ -134,6 +134,9 @@ def _coerce(cfg: Config) -> Config:
 
     # Ambiguous between a zero-length window and a whole day. The whole-day
     # reading would switch detection off permanently, so refuse both.
+    # schedule.is_off refuses an equal pair too, and deliberately: both
+    # answers point at monitoring, so a regression in either one still
+    # leaves the app listening.
     if cfg.schedule_off_from == cfg.schedule_off_to:
         cfg.schedule_enabled = False
     return cfg
