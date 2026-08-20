@@ -245,8 +245,6 @@ class Action:
 
 `actions.py` holds a name → instance registry. The strike ladder refers to actions **by name only**; config lists which names fire at which rung. Adding a new action means writing one class and adding its name to a list.
 
-A **disabled `usb_light` stub** ships with the first version, with serial/HID call sites marked `TODO`, so a future USB indicator light is a fill-in-the-blank rather than a refactor.
-
 ### 3.5 Storage
 
 `%LOCALAPPDATA%\STFU\`
@@ -366,7 +364,7 @@ minimize-then-overlay against a fullscreen game · 4-click X randomization · Wi
 | Events-only logging | The chart is about *when and how often*, not waveform archaeology |
 | Visible tray + PIN, not a hidden watchdog | The app works as a feedback device the user knows about; the log is the operator's evidence |
 | Python + PyInstaller | Matches the available toolchain; audio and charting are far less code than in C# |
-| Actions behind a name registry | A future USB indicator light is one new class, not a refactor |
+| Actions behind a name registry | A new reaction is one new method, not a refactor |
 | Sound clips supplied by the operator, folder rescanned per trigger | Clips get added after deployment; nothing ships with the app and no restart is needed to change the library |
 | Separate `first\` and `repeat\` clip folders | The two rungs mean different things; the audio should be able to say so |
 | Detection suppressed during clip playback | Prevents the app triggering on its own sound on any speaker-based setup |
@@ -377,4 +375,3 @@ minimize-then-overlay against a fullscreen game · 4-click X randomization · Wi
 - Remote monitoring, network reporting, or cloud sync
 - Blocking input, locking the workstation, or killing the game
 - Multi-user or multi-PC support
-- USB light hardware integration (stub only in v1)

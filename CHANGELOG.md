@@ -37,8 +37,6 @@ a previous version.
 - "Show popups" and "Play sounds" can each be switched off independently,
   including a log-only mode with both off
 - A tray-only "Pause 15 min" control
-- A stubbed USB indicator light action, wired into the registry but not
-  yet backed by hardware
 
 ### Setup
 
