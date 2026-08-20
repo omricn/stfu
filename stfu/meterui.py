@@ -140,6 +140,15 @@ class MeterWindow:
             self._canvas.coords(self._bar, 0, 0, 0, BAR_HEIGHT)
             self._threshold_label.configure(text="")
             self._cooldown_label.configure(text="", fg=self.root.cget("bg"))
+        elif reading.scheduled_off:
+            # A flat bar during off-hours would look exactly like a dead
+            # microphone. This window exists to stop that confusion, so it
+            # says which of the two it is.
+            self._level_label.configure(text="Off on schedule")
+            self._canvas.coords(self._bar, 0, 0, 0, BAR_HEIGHT)
+            self._canvas.coords(self._threshold_marker, 0, 0, 0, BAR_HEIGHT)
+            self._threshold_label.configure(text="")
+            self._cooldown_label.configure(text="Not listening", fg=theme.AMBER)
         else:
             self._level_label.configure(text=f"{reading.dbfs:.1f} dBFS")
             self._canvas.itemconfigure(
