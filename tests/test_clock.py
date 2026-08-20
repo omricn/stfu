@@ -101,7 +101,17 @@ def test_format_dt_renders_with_seconds_both_hour_sizes():
     assert format_dt(double_digit, "12h", seconds=True) == "10:04:22 AM"
 
 
-def test_format_dt_does_not_strip_the_ten_from_ten_oclock():
-    # Stripping the zero pad must not eat a significant digit.
+def test_format_dt_keeps_a_double_digit_hour_intact():
+    # Double-digit hours in 12-hour format are rendered without padding.
     moment = datetime(2026, 8, 20, 10, 4, 0)
     assert format_dt(moment, "12h") == "10:04 AM"
+
+
+def test_format_dt_defaults_unknown_clock_to_24h():
+    # 24-hour format is the deliberate fallback for unrecognized clock values,
+    # since it is unambiguous and cannot be misread.
+    moment = datetime(2026, 8, 20, 13, 4, 22)
+    assert format_dt(moment, "bogus") == "13:04"
+    assert format_dt(moment, "bogus", seconds=True) == "13:04:22"
+    assert format_dt(moment, "unknown") == "13:04"
+    assert format_dt(moment, "unknown", seconds=True) == "13:04:22"

@@ -65,7 +65,7 @@ def parse_time(text: object) -> int | None:
     return hour * 60 + minute
 
 
-def to_canonical(text: str) -> str | None:
+def to_canonical(text: object) -> str | None:
     """Normalise any accepted spelling to the stored "HH:MM" form."""
     minutes = parse_time(text)
     if minutes is None:
@@ -88,7 +88,11 @@ def format_time(minutes: int, clock: str) -> str:
 
 
 def format_dt(moment: datetime, clock: str, *, seconds: bool = False) -> str:
-    """Render a datetime's time of day for display."""
+    """Render a datetime's time of day for display.
+
+    The clock argument defaults to 24-hour format for any value other than "12h",
+    since 24-hour format is unambiguous and cannot be misread.
+    """
     if clock == "12h":
         hour = moment.hour % 12 or 12
         minute = moment.minute
