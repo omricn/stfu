@@ -3,7 +3,16 @@ from pathlib import Path
 
 import pytest
 
-PURE_MODULES = ["levels", "config", "detector", "strikes", "logstore", "engine"]
+PURE_MODULES = [
+    "levels",
+    "config",
+    "detector",
+    "strikes",
+    "logstore",
+    "engine",
+    "clock",
+    "schedule",
+]
 FORBIDDEN = {"sounddevice", "tkinter", "ctypes", "pystray", "matplotlib", "miniaudio"}
 
 
