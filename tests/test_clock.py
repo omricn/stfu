@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pytest
 
-from stfu.clock import CLOCK_FORMATS, format_dt, format_time, parse_time, to_canonical
+from stfu.clock import CLOCK_FORMATS, MINUTES_PER_DAY, format_dt, format_time, parse_time, to_canonical
 
 
 @pytest.mark.parametrize(
@@ -62,12 +62,25 @@ def test_format_time_gets_midnight_and_noon_right():
     assert format_time(0, "24h") == "00:00"
 
 
+def test_format_time_wraps_out_of_range_input():
+    # Wraparound at day boundary is defensive but intentional.
+    assert format_time(MINUTES_PER_DAY, "24h") == "00:00"
+    assert format_time(1440, "12h") == "12:00 AM"
+
+
+def test_format_time_defaults_unknown_clock_to_24h():
+    # 24-hour format is the deliberate fallback for unrecognized clock values,
+    # since it is unambiguous and cannot be misread.
+    assert format_time(60, "bogus") == "01:00"
+    assert format_time(780, "unknown") == "13:00"
+
+
 def test_every_minute_of_the_day_survives_a_round_trip():
     # The strongest guarantee available here: whatever we display, we can
     # read back. A display format that cannot be re-parsed would silently
     # reset the user's schedule the next time they saved Settings.
     for clock in CLOCK_FORMATS:
-        for minutes in range(0, 24 * 60):
+        for minutes in range(0, MINUTES_PER_DAY):
             rendered = format_time(minutes, clock)
             assert parse_time(rendered) == minutes, f"{clock} {minutes} -> {rendered}"
 
@@ -78,6 +91,14 @@ def test_format_dt_renders_time_of_day():
     assert format_dt(moment, "24h", seconds=True) == "13:04:22"
     assert format_dt(moment, "12h") == "1:04 PM"
     assert format_dt(moment, "12h", seconds=True) == "1:04:22 PM"
+
+
+def test_format_dt_renders_with_seconds_both_hour_sizes():
+    # Test both single-digit and double-digit hours with seconds=True.
+    single_digit = datetime(2026, 8, 20, 1, 4, 22)
+    double_digit = datetime(2026, 8, 20, 10, 4, 22)
+    assert format_dt(single_digit, "12h", seconds=True) == "1:04:22 AM"
+    assert format_dt(double_digit, "12h", seconds=True) == "10:04:22 AM"
 
 
 def test_format_dt_does_not_strip_the_ten_from_ten_oclock():
