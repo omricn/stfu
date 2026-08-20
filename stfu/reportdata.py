@@ -68,6 +68,38 @@ def trigger_points(events: list[dict]) -> list[TriggerPoint]:
     return sorted(points, key=lambda p: p.at)
 
 
+SCHEDULE_SUSPENDED = "schedule_suspended"
+SCHEDULE_RESUMED = "schedule_resumed"
+
+
+def off_windows(events: list[dict]) -> list[tuple[datetime, datetime | None]]:
+    """Pair schedule_suspended/schedule_resumed events into spans.
+
+    Unpaired events are expected, not exceptional: the app can exit inside the
+    window, leaving a suspend with no resume, and the log can begin mid-window,
+    leaving a resume with no suspend. The first yields a span ending in None,
+    meaning "still off at the end of the data"; the second is ignored.
+    """
+    spans: list[tuple[datetime, datetime | None]] = []
+    start: datetime | None = None
+
+    for record in sorted(events, key=lambda e: e.get("ts") or ""):
+        at = _parse(record.get("ts"))
+        if at is None:
+            continue
+        kind = record.get("type")
+        if kind == SCHEDULE_SUSPENDED:
+            if start is None:
+                start = at
+        elif kind == SCHEDULE_RESUMED and start is not None:
+            spans.append((start, at))
+            start = None
+
+    if start is not None:
+        spans.append((start, None))
+    return spans
+
+
 def table_rows(events: list[dict]) -> list[TableRow]:
     """Every event, including mic loss and pauses -- gaps in coverage matter."""
     rows = []
