@@ -1104,26 +1104,57 @@ Add a helper method on the class:
 
 - [ ] **Step 3: Draw the off-hours bands**
 
-In `load()`, immediately after the `if points:` scatter block and before `axes.set_ylabel("dBFS")`, add:
+**Corrected since this plan's first draft.** The original instruction read
+`off_windows(events)` — the session-filtered list — and that was verified broken.
+On a log holding a trigger plus two schedule records, `events_for_session("s1")`
+returns only `["session_start", "trigger"]`, because the engine stamps boundary
+records with whatever session was open and during quiet hours there is none, so
+they carry `session_id: None` and `events_for_session` matches by equality. The
+bands would never have appeared, and nothing would have said so.
+
+Two changes follow from that: read the spans from the **whole** log, and clip
+them to what the displayed session spans so one night's view does not stretch
+its axis across every window ever recorded.
+
+`load()` already computes `info = session_summary(events)` further down,
+immediately above `summary_label.configure(...)`. **Hoist that single line** to
+just before the block below and reuse it — the block needs it, and it must not
+be computed twice.
+
+In `load()`, immediately after the `if points:` scatter block and before
+`axes.set_ylabel("dBFS")`, add:
 
 ```python
+            # Hoisted from below, where it feeds summary_label: the band
+            # clipping needs it too, and computing it twice is waste.
+            info = session_summary(events)
+
             # Shade the scheduled off-hours so a gap in triggers reads as
             # "the app was deliberately not listening" rather than as a dead
-            # microphone or a missing log. An unterminated span runs to the
-            # end of the data, which is what a suspend with no resume means.
-            spans = off_windows(events)
-            if spans:
-                latest = max(
-                    [p.at for p in points] + [s[0] for s in spans]
-                )
-                for start, end in spans:
+            # microphone or a missing log.
+            #
+            # Read from the whole log, not from `events`. An off-hours window
+            # is a wall-clock fact about the app, not about a yelling session,
+            # and the boundary records carry whatever session was open -- during
+            # quiet hours, none. events_for_session() matches session_id by
+            # equality, so a null-stamped record is invisible there; reading
+            # the filtered list finds nothing and silently defeats the whole
+            # reason these events are logged.
+            #
+            # Clip to this session's span. An unterminated span -- a suspend
+            # with no resume, meaning the app exited inside the window -- runs
+            # to the end of this session.
+            if info.first_at is not None and info.last_at is not None:
+                for start, end in off_windows(self.store.read_all()):
+                    finish = end if end is not None else info.last_at
+                    if finish < info.first_at or start > info.last_at:
+                        continue
                     axes.axvspan(
-                        start,
-                        end if end is not None else latest,
+                        max(start, info.first_at),
+                        min(finish, info.last_at),
                         color=theme.TEXT_DIM,
                         alpha=0.18,
                         zorder=0,
-                        label="scheduled off",
                     )
 ```
 
@@ -1262,12 +1293,76 @@ In `_save()`, after the `for name, var in self._bools.items():` loop and **befor
                 setattr(self.config, name, f"{minutes // 60:02d}:{minutes % 60:02d}")
 ```
 
-Then in the redisplay block after `self.config = load_config()`, add alongside the existing two loops:
+**Then fix a pre-existing bug in the same method**, because this feature turns it
+from a wrong-value bug into a potential crash. `_save()` currently ends with:
+
+```python
+        save_config(self.config)
+        self.config = load_config()
+```
+
+`App` hands **one** `Config` object to both `Engine` and this window
+(`app.py:640`). `_save()` writes raw Entry text onto that shared object, then
+rebinds only *this window's* attribute to the coerced reload -- so the engine
+keeps the raw text forever. Reproduced: after a save the engine still sees
+`schedule_off_from == "banana"` with `schedule_enabled == True`. Today that
+already means an out-of-range `cooldown_seconds` never reaches the engine until
+a restart; with this feature it would additionally mean `is_off(None, ...)`
+raising `TypeError` on the audio thread. The engine now guards against that, but
+the stale value is still wrong.
+
+Replace those two lines with a copy-back onto the same object:
+
+```python
+        save_config(self.config)
+        # Copy the coerced values back into the *same* object rather than
+        # rebinding self.config. App hands one Config to both the engine and
+        # this window, so rebinding leaves the engine holding whatever raw
+        # text was typed here -- every coercion rule silently not applying
+        # until the next restart.
+        coerced = load_config()
+        for field in fields(Config):
+            setattr(self.config, field.name, getattr(coerced, field.name))
+```
+
+That needs `from dataclasses import fields` at the top of `settingsui.py`;
+`Config` is already imported there.
+
+Then in the redisplay block, add alongside the existing two loops:
 
 ```python
         for name, var in self._times.items():
             var.set(self._display_time(name))
 ```
+
+Finally add a test that needs no Tk, in `tests/test_config.py`. Construct a
+`Config`, set out-of-range values on it, run the same save-then-copy-back
+sequence, and assert the **original object** now holds the coerced values:
+
+```python
+def test_coerced_values_can_be_copied_back_onto_a_shared_config(tmp_path):
+    """settingsui._save() must not strand the engine on uncoerced values.
+
+    App hands one Config to both the engine and the settings window, so the
+    coerced reload has to be written back onto that object rather than bound
+    to a fresh one.
+    """
+    path = tmp_path / "config.json"
+    shared = Config(
+        cooldown_seconds=9999, schedule_enabled=True, schedule_off_from="banana"
+    )
+    save_config(shared, path)
+
+    coerced = load_config(path)
+    for field in fields(Config):
+        setattr(shared, field.name, getattr(coerced, field.name))
+
+    assert shared.cooldown_seconds == 10
+    assert shared.schedule_off_from == "07:00"
+    assert shared.schedule_enabled is False
+```
+
+`fields` comes from `dataclasses`; add it to that test file's imports.
 
 - [ ] **Step 5: Verify nothing broke**
 
