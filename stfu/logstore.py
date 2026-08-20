@@ -18,6 +18,10 @@ EVENT_TYPES = (
     "mic_found",
     "app_paused",
     "app_resumed",
+    # Entering and leaving the configured off-hours window. Logged so the
+    # report can label the gap rather than showing missing data.
+    "schedule_suspended",
+    "schedule_resumed",
 )
 
 

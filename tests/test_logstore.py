@@ -103,3 +103,11 @@ def test_sessions_tolerate_an_unparseable_timestamp(store):
     store.append(type="session_start", session_id="good", ts="2026-08-17T19:00:00")
     store.append(type="session_start", session_id="bad", ts="not a timestamp")
     assert store.sessions() == ["good", "bad"]
+
+
+def test_schedule_boundary_events_are_accepted(tmp_path):
+    store = LogStore(tmp_path / "events.jsonl")
+    store.append(type="schedule_suspended", session_id="s1")
+    store.append(type="schedule_resumed", session_id="s1")
+    kinds = [event["type"] for event in store.read_all()]
+    assert kinds == ["schedule_suspended", "schedule_resumed"]
