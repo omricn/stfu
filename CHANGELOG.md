@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to S.TFU are documented here. This is the first public
-release, so the entry below is a summary of what it does, not a diff against
-a previous version.
+All notable changes to S.TFU are documented here. The 1.0.0 entry is a
+summary of what the app does rather than a diff, since it was the first public
+release; everything after it is a real changelog.
 
-## [Unreleased]
+## [1.1.0] — 2026-08-20
 
 ### Added
 
