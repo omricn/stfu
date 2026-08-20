@@ -196,7 +196,7 @@ stfu/
   ...            first-run wizard, tray, report, settings, packaging
 ```
 
-`levels`, `config`, `detector`, `strikes`, `logstore` and `engine` are pure decision logic with **no audio, UI, or Win32 imports** — a test enforces that mechanically by inspecting their ASTs. That's why the detection logic is testable without a microphone, and it's most of why there are 437 tests (433 passing, 4 skipped).
+`levels`, `config`, `detector`, `strikes`, `logstore` and `engine` are pure decision logic with **no audio, UI, or Win32 imports** — a test enforces that mechanically by inspecting their ASTs. That's why the detection logic is testable without a microphone, and it's most of why there are 508 tests (484 passing, 24 skipped).
 
 See [docs/DESIGN.md](docs/DESIGN.md) for why the design is the way it is — the thresholds, the escalation rules, the failure modes, and the trade-offs that were accepted deliberately.
 
