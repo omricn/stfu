@@ -655,6 +655,11 @@ class App:
     def _mic_found(self) -> None:
         self._mic_present.set()
         self.engine.on_mic_found()
+        # Resync the cache as well as the icon. _update_meter compares
+        # against it to decide whether the icon needs rebuilding, and a value
+        # left over from before the outage would make the next frame see a
+        # change that already happened.
+        self._tray_scheduled_off = self.engine.scheduled_off
         self.tray.set_state(
             STATE_PAUSED
             if self.engine.paused
