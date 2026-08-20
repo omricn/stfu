@@ -29,17 +29,23 @@ log = logging.getLogger(__name__)
 
 STATE_LISTENING = "listening"
 STATE_PAUSED = "paused"
+STATE_SCHEDULED_OFF = "scheduled_off"
 STATE_NO_MIC = "no_mic"
 
 STATE_COLOURS = {
     STATE_LISTENING: "#2ecc71",
     STATE_PAUSED: "#f0a500",
+    # Amber already means "deliberately not listening", which is exactly what
+    # this is. Sharing the colour is a deliberate simplification; the tooltips
+    # differ, and a fourth colour is a two-line change if it proves confusing.
+    STATE_SCHEDULED_OFF: "#f0a500",
     STATE_NO_MIC: "#888888",
 }
 
 STATE_TOOLTIPS = {
     STATE_LISTENING: "S.TFU - listening",
     STATE_PAUSED: "S.TFU - paused",
+    STATE_SCHEDULED_OFF: "S.TFU - off on schedule",
     STATE_NO_MIC: "S.TFU - microphone not found",
 }
 
