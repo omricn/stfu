@@ -1,4 +1,5 @@
 import json
+from dataclasses import fields
 
 import pytest
 
@@ -228,3 +229,25 @@ def test_an_unknown_clock_format_falls_back_to_twenty_four_hour(tmp_path):
     path = tmp_path / "config.json"
     save_config(Config(clock_format="swatch-beats"), path)
     assert load_config(path).clock_format == "24h"
+
+
+def test_coerced_values_can_be_copied_back_onto_a_shared_config(tmp_path):
+    """settingsui._save() must not strand the engine on uncoerced values.
+
+    App hands one Config to both the engine and the settings window, so the
+    coerced reload has to be written back onto that object rather than bound
+    to a fresh one.
+    """
+    path = tmp_path / "config.json"
+    shared = Config(
+        cooldown_seconds=9999, schedule_enabled=True, schedule_off_from="banana"
+    )
+    save_config(shared, path)
+
+    coerced = load_config(path)
+    for field in fields(Config):
+        setattr(shared, field.name, getattr(coerced, field.name))
+
+    assert shared.cooldown_seconds == 10
+    assert shared.schedule_off_from == "07:00"
+    assert shared.schedule_enabled is False
